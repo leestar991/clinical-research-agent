@@ -61,9 +61,11 @@ The API is available at `http://localhost:8000/api/invocations`, or on the port 
 `--app-port`. Requests can fail for a few seconds while the server starts; wait for
 `Uvicorn running on ...` in the log.
 
-Local browser login uses HTTP Basic. Enter your workspace user name and a valid workspace access
-token as the password. API clients can use Bearer authentication. For the curl examples below,
-`--user workspace` prompts for the token without placing it on the command line.
+The local workbench uses the Databricks identity of the CLI profile that started the server.
+Open `http://localhost:8000/` directly. Every browser using this loopback instance shares that
+identity. To renew workspace authorization in the browser, run
+`databricks auth login --profile <profile>` for the same profile, then refresh the workbench.
+Local API clients can also supply a Bearer token to act as its workspace user.
 Set the optional server environment variable `AGENT_ADMIN_USERS` to a comma-separated list of
 workspace user names to grant cross-user reads and memory pipeline access. See [project roles](ROLES.zh-CN.md).
 
@@ -75,7 +77,7 @@ the top-level `session_id`; agent-specific values live inside the opaque `input`
 SESSION_ID=$(uuidgen)
 INVOCATION_ID=$(uuidgen)
 
-curl --user workspace -sS http://localhost:8000/api/invocations \
+curl -sS http://localhost:8000/api/invocations \
   -H 'Content-Type: application/json' \
   -d "{\"id\":\"$INVOCATION_ID\",\"session_id\":\"$SESSION_ID\",\"input\":{\"messages\":[{\"role\":\"user\",\"content\":\"What time is it? Use your tool.\"}]}}"
 ```
@@ -115,15 +117,15 @@ agentbricks --profile <profile> endpoint invoke agent-bricks-<name> --path /api/
 
 ```bash
 INVOCATION_ID=$(uuidgen)
-curl --user workspace -sN http://localhost:8000/api/invocations \
+curl -sN http://localhost:8000/api/invocations \
   -H 'Content-Type: application/json' \
   -d "{\"id\":\"$INVOCATION_ID\",\"session_id\":\"$SESSION_ID\",\"input\":{\"messages\":[{\"role\":\"user\",\"content\":\"Count to three.\"}]},\"stream\":true}"
 
 INVOCATION_ID=$(uuidgen)
-curl --user workspace -sS http://localhost:8000/api/invocations \
+curl -sS http://localhost:8000/api/invocations \
   -H 'Content-Type: application/json' \
   -d "{\"id\":\"$INVOCATION_ID\",\"session_id\":\"$SESSION_ID\",\"input\":{\"messages\":[{\"role\":\"user\",\"content\":\"Summarize durable agents.\"}]},\"background\":true}" | jq
-curl --user workspace -sS "http://localhost:8000/api/invocations/$INVOCATION_ID" | jq
+curl -sS "http://localhost:8000/api/invocations/$INVOCATION_ID" | jq
 ```
 
 SSE records contain events translated by `runtime/adapter.py`: token `delta`s, completed `message`s,

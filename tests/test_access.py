@@ -1,5 +1,6 @@
 """Permission checks through the same HTTP routes used by the workbench and API clients."""
 
+from types import SimpleNamespace
 from uuid import uuid4
 
 from databricks_agentkit import DurableAgentServer
@@ -107,7 +108,7 @@ def test_session_memory_and_pipeline_permissions(monkeypatch):
         assert client.post("/api/demo/memory/pipeline/run").status_code == admin
 
 
-def test_local_login_ignores_forwarded_identity_and_verifies_token(tmp_path, monkeypatch):
+def test_local_profile_and_explicit_api_credentials(tmp_path, monkeypatch):
     import httpx
 
     monkeypatch.setattr(access, "deployed", lambda: False)
@@ -120,12 +121,36 @@ def test_local_login_ignores_forwarded_identity_and_verifies_token(tmp_path, mon
         return httpx.Response(200 if ok else 401, json={"userName": "bob"}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(httpx.AsyncClient, "get", whoami)
-    with TestClient(_app(tmp_path / "runtime.db")) as client:
+    user = SimpleNamespace(user_name="operator", active=True)
+    monkeypatch.setattr(access, "workspace_client", lambda: SimpleNamespace(
+        current_user=SimpleNamespace(me=lambda: user)
+    ))
+    with TestClient(_app(tmp_path / "runtime.db"), base_url="http://localhost",
+                    client=("127.0.0.1", 32100)) as client:
         url = "/api/ui/config?session_id=test"
-        assert client.get(url, headers=identity("operator")).status_code == 401
-        assert client.get(url, auth=("operator", "wrong")).status_code == 401
-        config = client.get(url, auth=("operator", "test-token"), headers=identity("operator")).json()
-        assert (config["viewer"], config["role"]) == ("bob", "user")
+        for headers in ({}, identity("bob"), {"Authorization": "Basic stale", "Sec-Fetch-Mode": "navigate"}):
+            response = client.get(url, headers=headers)
+            assert response.status_code == 200 and "www-authenticate" not in response.headers
+            assert (response.json()["viewer"], response.json()["role"]) == ("operator", "admin")
+
+        assert client.get(url, headers={"Host": "other.example"}).status_code == 403
+        for value in ("Bearer wrong", "Basic invalid"):
+            response = client.get(url, headers={"Authorization": value})
+            assert response.status_code == 401 and "www-authenticate" not in response.headers
+        for auth in ({"auth": ("operator", "test-token")},
+                     {"headers": {"Authorization": "Bearer test-token", **identity("operator")}}):
+            config = client.get(url, **auth).json()
+            assert (config["viewer"], config["role"]) == ("bob", "user")
+        user.active = False
+        assert client.get(url).status_code == 403
+
+        def expired_profile():
+            raise ValueError("Authentication unavailable")
+
+        monkeypatch.setattr(access, "workspace_client", expired_profile)
+        expired = client.get("/")
+        assert expired.status_code == 503 and "www-authenticate" not in expired.headers
+        assert "databricks auth login" in expired.json()["detail"]
 
 
 def test_direct_invocation_checks_managed_session_owner(tmp_path, monkeypatch):

@@ -1,5 +1,6 @@
 """Application identities at the Databricks Apps and local HTTP boundaries."""
 
+import asyncio
 import base64
 import os
 from contextvars import ContextVar
@@ -9,6 +10,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
+from databricks.sdk.errors import DatabricksError
 from databricks_agentkit import workspace_client, workspace_headers
 from databricks_agentkit.runtime.auth import AuthError, RequestAuthContext
 from databricks_agentkit.runtime.store import RUNTIME_STORE_LOCAL_ENV
@@ -46,9 +48,7 @@ def session_key(value: str | None) -> str:
 
 
 def _login_required() -> HTTPException:
-    return HTTPException(401, "Valid workspace credentials required.", headers={
-        "WWW-Authenticate": 'Basic realm="Local agent (workspace access token)"'
-    })
+    return HTTPException(401, "Valid workspace credentials required.")
 
 
 @lru_cache(maxsize=1)
@@ -59,10 +59,31 @@ def _workspace_host() -> str:
     return host
 
 
+def _profile_actor() -> str:
+    try:
+        user = workspace_client().current_user.me()
+    except (DatabricksError, ValueError, OSError):
+        raise HTTPException(
+            503, "Cannot verify the local Databricks profile. Run 'databricks auth login' "
+            "for the workbench profile and refresh."
+        ) from None
+    if user.active is False or not (user.user_name or "").strip():
+        raise HTTPException(403, "An active Databricks workspace user is required.")
+    return user.user_name.strip()
+
+
 async def _local_actor(request: Request) -> str:
-    # The dev proxy supplies the developer's display headers to EVERY browser.
-    # Verify the caller's own token instead. Basic supports the browser login dialog.
-    scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+    authorization = request.headers.get("authorization", "")
+    scheme, _, credential = authorization.partition(" ")
+    # Browsers may still send Basic credentials cached from an older workbench.
+    cached_basic = scheme.lower() == "basic" and request.headers.get("sec-fetch-mode")
+    if not authorization or cached_basic:
+        loopback = {"localhost", "127.0.0.1", "::1"}
+        if not request.client or request.client.host not in loopback or request.url.hostname not in loopback:
+            raise HTTPException(403, "The local Databricks profile is only available on loopback.")
+        return await asyncio.to_thread(_profile_actor)
+
+    # Explicit API credentials identify their own caller, including older Basic API clients.
     if scheme.lower() == "basic":
         try:
             _, separator, credential = base64.b64decode(credential, validate=True).decode().partition(":")
@@ -160,7 +181,7 @@ async def authenticate_request(request: Request, call_next):
                     auth.close()
             if request.method == "POST" and not deployed():
                 # The SDK uses the dev profile for local OBO tool clients.
-                if viewer.actor != workspace_client().current_user.me().user_name:
+                if viewer.actor != await asyncio.to_thread(_profile_actor):
                     raise HTTPException(403, "Local user-authorized tools require the profile owner.")
     except AuthError as exc:
         return JSONResponse({"error": exc.payload()}, status_code=exc.status_code)
