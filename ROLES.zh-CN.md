@@ -55,7 +55,7 @@ App 的 `CAN USE` 与 `CAN MANAGE` 控制应用入口和管理操作。Store 的
 | 本地 SQLite 与 MLflow | 默认由**开发者的本机进程**读写。三个 SQLite 文件按操作系统目录和文件权限访问，本地追踪写到开发用 MLflow 服务。工作台仅向应用管理员显示 Traces 入口，点击后打开当前会话的追踪。本机可直接访问独立的 MLflow 页面，无需应用管理员登录。 | 浏览器经本地后端使用会话、记忆和运行记录，无需数据库账号。**本机管理员**只在处理本机账号、文件权限或备份时介入。[存储配置](agent/storage.toml) |
 | GitHub 公共仓库、开发分支 | 公开源码可匿名读取。**开发者**推送需 GitHub 认证和目标仓库写权限，并遵守分支规则。 | **仓库管理员**管理协作者和分支规则。GitHub 权限只控制代码协作。 |
 | 内置工具及人工确认 | 普通用户可在聊天中使用 `get_current_time`。`send_message` 是演示工具，执行前由发起该操作的人确认。 | 两者均未接入外部账号。人工确认只针对一次工具动作，不产生云端资源授权。[工具实现](agent/tools/send_message.py) |
-| 可选外部工具，如 MCP、Genie | 当前清单未绑定外部工具。后续若配置 `auth = "user"`，调用者需提供请求用户授权，并具备目标资源权限；若配置 `auth = "app"`，由应用运行身份访问。 | **开发者**声明认证方式，**目标资源管理者**授予相应身份所需权限。普通用户是否需要目标资源的个人权限取决于该工具的绑定方式。[资源清单](agent.toml) · [请求用户授权](README.md#request-user-authorization) |
+| MCP 网页搜索 | `system.ai.web_search` 使用 `auth = "app"`。本地使用启动服务的 CLI profile，部署后使用目标 App 的服务主体。 | 普通用户和应用管理员均可在聊天中搜索公开资料。工具只发送搜索词，外发内容应限于公开信息。资源管理者核对调用身份在 `system`、`system.ai` 和目标 MCP Service 上分别有 `USE CATALOG`、`USE SCHEMA`、`EXECUTE`。[官方搜索要求](https://docs.databricks.com/aws/en/machine-learning/model-serving/web-search#web-search-through-mcp) |
 
 ## 数据归属与旧记录
 

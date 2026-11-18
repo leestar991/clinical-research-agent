@@ -87,6 +87,18 @@ def test_default_model_reads_project_manifest(monkeypatch, tmp_path):
         _configured_default_model()
 
 
+def test_responses_api_accepts_mcp_search_result():
+    from agent.agent import _RoutedChatDatabricks
+    from langchain_core.messages import ToolMessage
+
+    model = _RoutedChatDatabricks(endpoint="test-endpoint", use_responses_api=True)
+    result = ToolMessage(content=[{"type": "text", "text": "Source: https://www.ich.org"}],
+                         tool_call_id="search-1")
+    item, = model._prepare_inputs([result])["input"]
+    assert item == {"type": "function_call_output", "call_id": "search-1",
+                    "output": [{"type": "input_text", "text": "Source: https://www.ich.org"}]}
+
+
 @pytest.mark.parametrize(
     ("endpoint", "responses_api"),
     [
@@ -100,6 +112,7 @@ async def test_graph_uses_tool_compatible_model_api(monkeypatch, endpoint, respo
     from langchain_core.messages import HumanMessage
 
     monkeypatch.setattr(agent_module, "create_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(agent_module, "mcp_tools", AsyncMock(return_value=[]))
     monkeypatch.setattr(agent_module, "_app_workspace_client", lambda: None)
     graph = await agent_module.create_agent_graph("test-actor", endpoint)
     model = graph["model"]

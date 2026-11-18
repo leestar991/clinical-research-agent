@@ -21,3 +21,8 @@ use_responses_api = true
 
 [models."system.ai.gpt-6-1-sol"]
 use_responses_api = true
+
+[[tools]]
+id = "web_search"
+auth = "app"
+source = {kind = "mcp", service = "system.ai.web_search"}

@@ -62,7 +62,17 @@ class _RoutedChatDatabricks(ChatDatabricks):
 
     def _prepare_inputs(self, messages: list[Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
         # Send Claude 5.x reasoning (and its signature) back to the model on the next turn.
-        return super()._prepare_inputs(gateway_messages(messages), *args, **kwargs)
+        payload = super()._prepare_inputs(gateway_messages(messages), *args, **kwargs)
+        # MCP text blocks use the LangChain shape; Responses expects input_text
+        # when the model consumes a function result, including on a later turn.
+        for item in payload.get("input", []):
+            if item.get("type") == "function_call_output" and isinstance(item["output"], list):
+                item["output"] = [
+                    {"type": "input_text", "text": block["text"]}
+                    if isinstance(block, dict) and block.get("type") == "text" else block
+                    for block in item["output"]
+                ]
+        return payload
 
 
 @lru_cache(maxsize=1)
