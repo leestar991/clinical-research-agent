@@ -15,7 +15,7 @@ needs runtime wiring as well as manifest configuration.
 | `dev`, `deploy` | Installable dependencies and an `app.yaml` command starting the application |
 | `tools add mcp`, `uc-function`, `genie`, `sandbox` | Load bindings into model definitions and tool execution |
 | `sessions bind` | Select the bound checkpointer and supply session/actor identity; off by default in `dev`, connects after `deploy` |
-| `memory bind` | Include bound, actor-scoped memory tools in definitions and execution; off by default in `dev`, connects after `deploy` |
+| `memory bind` | Use actor-scoped memory tools. Local dev defaults to SQLite and deployment uses the bound managed store. |
 | `tracing bind`, `tracing unbind` | Initialize tracing and open a root span from resolved config |
 | `endpoint invoke` | An HTTP endpoint; the caller supplies its path and complete request body |
 
@@ -53,7 +53,9 @@ binding change. In this project, `agentbricks dev` opens a local SQLite checkpoi
 server lifespan unless a managed store is explicitly configured. Graph runs, checkpoint recovery,
 and UI history must use the same actor-scoped thread. The application state must be serializable by the selected saver.
 
-Include `memory_tools(actor)` in model and execution wiring. It returns no tools when unconfigured.
+Include `memory_tools(actor)` in model and execution wiring. In local dev, SQLite supplies
+`remember`, `recall`, `forget` and `list_memories` unless a managed Memory Store is explicitly
+configured. Outside local dev the SDK selects the managed tools.
 Its closures capture actor identity, so never reuse them across users. The application owns trusted
 actor/tenant authentication; a payload field alone does not establish identity. The
 template adapter reads `input.actor` and defaults it to the session ID, so memory carries across

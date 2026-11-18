@@ -11,6 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from agent import memory as local_memory
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -57,7 +58,7 @@ class SessionItemsRequest(BaseModel):
 
 
 _USER_HEADERS = ("x-forwarded-email", "x-forwarded-user")
-# Set by `agentbricks dev` (display only; memory stays off locally). Spelled out rather than imported
+# Set by `agentbricks dev` (display only; identifies the deployment binding). Spelled out rather than imported
 # from databricks_agentkit so the chat app still loads against an older SDK, which just never sets it.
 _DEV_BOUND_MEMORY_STORE_ENV = "AGENTBRICKS_DEV_BOUND_MEMORY_STORE"
 
@@ -548,6 +549,7 @@ def install_ui(app: FastAPI) -> None:
     async def ui_config(request: Request) -> dict:
         actor = _request_actor(request)
         memory_store = _memory_store()
+        sqlite_memory = local_memory.use_local_memory()
         from agent.sessions import use_local_sqlite
 
         session_store = _session_store()
@@ -588,10 +590,13 @@ def install_ui(app: FastAPI) -> None:
                 "actor": actor,
             },
             "memory": {
-                "enabled": bool(memory_store),
-                "store": f"memory-stores/{memory_store}" if memory_store else None,
+                "enabled": bool(memory_store) or sqlite_memory,
+                **({"backend": "sqlite"} if sqlite_memory else {}),
+                "store": local_memory.MEMORY_DB.name if sqlite_memory else (
+                    f"memory-stores/{memory_store}" if memory_store else None
+                ),
                 "actor": actor,
-                # Memory is off under `agentbricks dev`, so pipelines need a deployed app.
+                # Pipelines run on deployed managed stores.
                 "pipelines": _is_deployed() and bool(memory_store and session_store),
                 # Under `agentbricks dev`, the store bound in agent.toml that connects on deploy.
                 "bound_store": os.getenv(_DEV_BOUND_MEMORY_STORE_ENV) or None,
@@ -610,8 +615,27 @@ def install_ui(app: FastAPI) -> None:
     async def demo_tools() -> dict:
         return await asyncio.to_thread(_tools)
 
+    def local_memory_actor(request: Request, selected: str | None = None) -> str:
+        actor = _request_actor(request)
+        if selected and selected != actor:
+            raise HTTPException(status_code=403, detail="Memory belongs to another actor.")
+        if app.auth_policy.requires_user:
+            from databricks_agentkit.runtime.auth import RequestAuthContext
+
+            auth = RequestAuthContext.from_headers(request.headers)
+            try:
+                return auth.namespace("actor", actor)
+            finally:
+                auth.close()
+        return actor
+
     @app.post("/api/demo/memory/entries", include_in_schema=False)
     async def create_memory_entry(request: Request, payload: MemoryEntryRequest) -> dict:
+        if local_memory.use_local_memory():
+            return await asyncio.to_thread(
+                local_memory.save_entry, local_memory_actor(request), payload.path, payload.content,
+                _request_session_id(request), payload.description,
+            )
         _require_memory()
         return await _managed_call(
             _state_client().create_memory_entry,
@@ -626,7 +650,12 @@ def install_ui(app: FastAPI) -> None:
         path_prefix: str | None = Query(default=None),
         actor: str | None = Query(default=None),
     ) -> dict:
-        # The UI can browse another actor's memories by passing ?actor=; default to the viewer.
+        if local_memory.use_local_memory():
+            rows = await asyncio.to_thread(
+                local_memory.entries, local_memory_actor(request, actor), path_prefix=path_prefix,
+            )
+            return {"managed_memory_entries": rows}
+        # The managed workbench can browse other actors in its store.
         _require_memory()
         return await _managed_call(
             _state_client().list_memory_entries, actor or _request_actor(request), path_prefix
@@ -634,7 +663,12 @@ def install_ui(app: FastAPI) -> None:
 
     @app.post("/api/demo/memory/search", include_in_schema=False)
     async def search_memory_entries(request: Request, payload: MemorySearchRequest) -> dict:
-        # payload.actor lets the UI search another actor's memories; default to the viewer.
+        if local_memory.use_local_memory():
+            rows = await asyncio.to_thread(
+                local_memory.entries, local_memory_actor(request, payload.actor),
+                query=payload.query, limit=payload.limit,
+            )
+            return {"managed_memory_entries": rows}
         _require_memory()
         return await _managed_call(
             _state_client().search_memory_entries, payload.actor or _request_actor(request), payload

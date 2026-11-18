@@ -57,8 +57,11 @@ keeps facts the agent recalls across conversations, keyed by `actor`: `runtime/a
 (`auth = "user"`) tool bound, the adapter also namespaces a supplied `actor` to the signed-in user; see
 [Request-user authorization](#request-user-authorization).
 
-Memory is off by default under `agentbricks dev`, so try it against the deployed app: two
-invocations with different `session_id`s and the same `actor`.
+During `agentbricks dev`, the memory tools save facts in `.agentbricks/local_agent_memory.db`.
+Recall searches keywords in the current actor's paths, descriptions and facts. In the local
+workbench, ask the agent to remember a fact, start a new session and ask for the fact again.
+API clients must keep the same `input.actor` across those two sessions. The same check against
+a deployed app uses the bound Databricks Memory Store:
 
 ```bash
 ACTOR=user-123
@@ -153,8 +156,7 @@ Use `agentbricks init --framework langgraph --disable-chat-app` for API-only out
 - Add local tools under `agent/tools/`; modules are auto-discovered.
 - Add MCP servers in `agent/mcps.py` or with `agentbricks tools add mcp`.
 - Bind long-term memory with `agentbricks memory bind <store>`; `agentbricks deploy` creates the
-  store if it doesn't exist. Memory and session stores are off by default in `agentbricks dev` (the
-  chat app shows "Not connected" for memory locally) and connect after deploy. To start with
+  store if it doesn't exist. Local development uses SQLite for memory and session checkpoints by default. To start with
   memories already in the store, create it and add entries before you bind and deploy:
 
   ```bash

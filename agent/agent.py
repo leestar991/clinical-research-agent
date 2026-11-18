@@ -12,6 +12,7 @@ from langgraph.types import Command
 from pydantic import TypeAdapter, ValidationError
 
 from agent.mcps import build_mcp_servers
+from agent.memory import memory_tools
 from agent.sessions import checkpointer, thread_config
 
 # Importing the tools package auto-registers every tool module.
@@ -21,7 +22,6 @@ from databricks_agentkit.langgraph import (
     configure_tracing,
     genie_tools,
     mcp_tools,
-    memory_tools,
     start_trace,
 )
 from databricks_agentkit.langgraph.messages import gateway_messages

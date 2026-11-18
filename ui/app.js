@@ -879,6 +879,12 @@ function renderMemoryEmpty() {
   title.className = "memory-setup-title";
   title.textContent = actor ? `No memories for ${actor} yet` : "No memories yet";
   const body = document.createElement("p");
+  if (state.config?.memory.backend === "sqlite") {
+    body.textContent = "Ask the agent to remember a fact or preference in chat.";
+    empty.append(memoryEmptyIcon(), title, body);
+    elements.memoryEntries.append(empty);
+    return;
+  }
   body.textContent = "The agent saves them as you chat. To add one yourself, run:";
   const command = [
     "agentbricks memory entries create",
@@ -1764,14 +1770,19 @@ async function loadConfig() {
     void loadModels().catch((error) => addEvent("models.error", { message: String(error) }));
     setViewer(config.viewer, { deployed: config.deployed, profile: config.profile });
     elements.sessionMode.textContent = config.session.mode;
-    // Memory is off under `agentbricks dev`, so a bound store reads as active after deploy, not missing.
+    const sqliteMemory = config.memory.backend === "sqlite";
+    elements.memoryActor.readOnly = sqliteMemory;
+    if (sqliteMemory) {
+      elements.memoryActor.value = config.memory.actor;
+      document.querySelector("#memory-actor-tip").textContent = "Local memories belong to the current actor.";
+    }
     const memoryState = config.memory.enabled
       ? "connected"
       : config.memory.bound_store && !config.deployed
         ? "on-deploy"
         : "off";
     elements.memoryMode.textContent = {
-      connected: "Connected",
+      connected: sqliteMemory ? "Local SQLite" : "Connected",
       "on-deploy": "Bound · active after deploy",
       off: "Not connected",
     }[memoryState];
