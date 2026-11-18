@@ -20,6 +20,8 @@
 
 ## 2. 按身份准备权限
 
+普通用户、开发者、本机与云端管理员的职责，以及 App 运行身份与发布身份的区别，见[项目角色与权限分工](ROLES.zh-CN.md)。
+
 | 身份 | 部署前核对 |
 | --- | --- |
 | 工作区管理员 | 确认目标工作区支持 Databricks Apps、托管 Lakebase 和所用 Unity Gateway 模型。在 **Previews** 中启用 **Agent Memory Sessions**。 |
