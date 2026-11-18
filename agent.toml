@@ -4,7 +4,7 @@ schema_version = 1
 framework = "langgraph"
 server = "agentbricks"
 deployment_name = "clinical-r-eikyyo"
-default_model = "system.ai.claude-sonnet-5-5"
+default_model = "system.ai.gpt-6-1-sol"
 
 [memory_store]
 name = "clinical-research-agent-eikyyo-memory"
