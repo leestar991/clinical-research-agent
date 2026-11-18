@@ -11,6 +11,7 @@ from databricks_agentkit.langgraph.messages import message_items
 from agent.storage_config import storage_config
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.message import add_messages
 
 _sqlite_saver: BaseCheckpointSaver | None = None
@@ -41,15 +42,17 @@ def checkpointer() -> BaseCheckpointSaver:
 
 def thread_config(session_id: str, actor: str) -> RunnableConfig:
     config = agentkit_thread_config(session_id, actor)
-    if _sqlite_saver is not None:
-        # SQLite indexes by thread_id alone. Preserve the actor scope of the session.
+    if _sqlite_saver is not None or isinstance(checkpointer(), InMemorySaver):
+        # SQLite and in-memory savers index by thread_id alone. Preserve the actor scope of the session.
         config["configurable"]["thread_id"] = json.dumps([actor, session_id], separators=(",", ":"))
     return config
 
 
 async def session_history(session_id: str, actor: str) -> dict:
     if _sqlite_saver is None:
-        return await read_history(session_id, actor)
+        thread_id = thread_config(session_id, actor)["configurable"]["thread_id"]
+        history = await read_history(thread_id, actor)
+        return {**history, "session_id": session_id}
 
     saved = await _sqlite_saver.aget_tuple(thread_config(session_id, actor))
     items = []

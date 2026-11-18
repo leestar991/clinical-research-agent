@@ -8,7 +8,9 @@ import uvicorn
 from agent.agent import configure
 from agent.sessions import local_sqlite_sessions, use_local_sqlite
 from dotenv import load_dotenv
+from runtime.access import deployed
 from runtime.adapter import invoke, recover
+from runtime.server import install_runtime_access
 from runtime.sqlite_store import local_runtime_store
 from runtime.ui import install_ui
 
@@ -21,6 +23,7 @@ configure()
 
 runtime_store = local_runtime_store()
 app = DurableAgentServer(runtime_store=runtime_store)
+install_runtime_access(app)
 if use_local_sqlite():
     runtime_lifespan = app.router.lifespan_context
 
@@ -37,4 +40,9 @@ install_ui(app, local_runtime=runtime_store is not None)
 
 
 def main() -> None:
-    uvicorn.run("runtime.main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
+    uvicorn.run(
+        "runtime.main:app",
+        host="0.0.0.0" if deployed() else "127.0.0.1",
+        port=int(os.getenv("PORT", "8000")),
+        proxy_headers=False,
+    )

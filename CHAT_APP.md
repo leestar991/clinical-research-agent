@@ -16,7 +16,7 @@ intentionally not a post-generation mutation command.
 The capability indicators are automatic. Streaming and background reflect the runtime contract;
 Session reflects checkpoint history; Memory shows the active local or managed store; Traces reflects the MLflow
 tracing config (destination + experiment). Selecting Memory opens a pane for browsing the store's
-entries (searchable, filterable by actor, with a modal for each entry); the other indicators expand
+entries (admins can filter by actor, regular users see their own); the other indicators expand
 in place, and Traces links out to the MLflow experiment. The transport selector is the only manual
 capability choice; hover or focus a mode to see what it does.
 
@@ -30,7 +30,7 @@ and the `agentbricks tools add …` commands to copy. It reads `GET /api/demo/to
 `agent.toml` on each request, so `tools add`/`remove` show up after a refresh. A bad `agent.toml` or
 `agent.tools` import shows as an error in the pane. MCP servers from `agent/mcps.py` are not listed.
 
-The Memory pane has two tabs. **Entries** browses the store's memories by actor. In a deployed app
+The Memory pane has two tabs. **Entries** browses the store's memories by actor. For application admins in a deployed app
 with both stores bound, **Pipeline** shows the memory pipeline for that session store + memory store
 pair (`GET /api/demo/memory/pipeline`): its model, trigger, instructions, and five most recent runs.
 A dot on the Pipeline tab marks a failed latest run. **Run now** (`POST

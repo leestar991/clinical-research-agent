@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from runtime import ui
+from runtime import access, ui
 
 from databricks_agentkit import DurableAgentServer
 from databricks_agentkit.runtime.auth import InvocationAuthPolicy
@@ -134,6 +134,7 @@ async def _session_history(session_id, actor):
 
 
 def _client(monkeypatch, *, configured=False, history=False, session_id="routing-session"):
+    monkeypatch.setattr(access, "deployed", lambda: True)
     if configured:
         monkeypatch.setenv("AGENT_MEMORY_STORE", "store")
         monkeypatch.setenv("AGENT_SESSION_STORE", "sessions")
@@ -161,10 +162,7 @@ def _client(monkeypatch, *, configured=False, history=False, session_id="routing
     # ?session_id=... query param, matching what demoUrl() sends in the real browser.
     client.params = {"session_id": session_id}
     client.headers["X-Routing-Key"] = session_id
-    if configured:
-        # The actor is the signed-in user from this forwarded-identity header (ui._request_actor);
-        # unconfigured requests have no header and fall back to the "agent" actor.
-        client.headers["X-Forwarded-Email"] = "alice"
+    client.headers["X-Forwarded-Email"] = "alice"
     return client
 
 
@@ -258,7 +256,7 @@ def test_demo_ui_routes(monkeypatch):
         "sessions": [
             {
                 "session_id": "routing-session",
-                "actor_id": "agent",
+                "actor_id": "alice",
                 "metadata": {"client": "agentbricks-demo-ui-local"},
             }
         ],
@@ -328,13 +326,11 @@ def test_demo_config_distinguishes_run_local_from_a_deployed_app(monkeypatch):
     assert _client(monkeypatch).get("/api/ui/config").json()["deployed"] is True
 
 
-def test_demo_config_reports_the_local_profile_and_no_viewer_without_an_identity(monkeypatch):
-    # Locally the chip says which Databricks profile the agent signs in with; with no forwarded
-    # identity there is no viewer name to show.
+def test_demo_config_reports_the_local_profile_and_authenticated_viewer(monkeypatch):
     monkeypatch.setenv("DATABRICKS_CONFIG_PROFILE", "my-workspace")
     config = _client(monkeypatch).get("/api/ui/config").json()
     assert config["profile"] == "my-workspace"
-    assert config["viewer"] is None
+    assert config["viewer"] == "alice"
     monkeypatch.delenv("DATABRICKS_CONFIG_PROFILE")
     assert _client(monkeypatch).get("/api/ui/config").json()["profile"] is None
 
@@ -492,7 +488,7 @@ async def test_checkpoint_history_reads_messages_and_interrupts(monkeypatch):
     async def saved_checkpoint(config):
         assert config == {
             "configurable": {
-                "thread_id": "saved-session",
+                "thread_id": '["alice","saved-session"]',
                 "actor_id": "alice",
             }
         }
@@ -544,14 +540,13 @@ def test_managed_memory_and_session_routes(monkeypatch):
     search = client.post("/api/demo/memory/search", json={"query": "Databricks"})
     assert search.json()["managed_memory_entries"][0]["content"] == "Databricks"
 
-    # The UI can browse another actor's memories via ?actor= (list) or payload.actor (search);
-    # both default to the viewer when omitted.
+    # Both routes default to the viewer and restrict explicit cross-user queries.
     listed_default = client.get("/api/demo/memory/entries").json()
     assert listed_default["managed_memory_entries"][0]["actor_id"] == "alice"
-    listed_bob = client.get("/api/demo/memory/entries", params={"actor": "bob"}).json()
-    assert listed_bob["managed_memory_entries"][0]["actor_id"] == "bob"
+    listed_bob = client.get("/api/demo/memory/entries", params={"actor": "bob"})
+    assert listed_bob.status_code == 403
     search_bob = client.post("/api/demo/memory/search", json={"query": "x", "actor": "bob"})
-    assert search_bob.json()["managed_memory_entries"][0]["actor_id"] == "bob"
+    assert search_bob.status_code == 403
 
     # Tracing surfaces in config when a destination + experiment are set, with an experiment link.
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
@@ -602,6 +597,7 @@ def test_managed_memory_and_session_routes(monkeypatch):
 
 
 def test_memory_pipeline_routes(monkeypatch):
+    monkeypatch.setenv("AGENT_ADMIN_USERS", "alice")
     # Without both stores the pipeline routes refuse before calling the API.
     unconfigured = _client(monkeypatch)
     assert unconfigured.get("/api/demo/memory/pipeline").status_code == 503

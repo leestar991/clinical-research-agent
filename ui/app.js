@@ -1771,10 +1771,10 @@ async function loadConfig() {
     setViewer(config.viewer, { deployed: config.deployed, profile: config.profile });
     elements.sessionMode.textContent = config.session.mode;
     const sqliteMemory = config.memory.backend === "sqlite";
-    elements.memoryActor.readOnly = sqliteMemory;
-    if (sqliteMemory) {
+    elements.memoryActor.readOnly = config.role !== "admin";
+    if (elements.memoryActor.readOnly) {
       elements.memoryActor.value = config.memory.actor;
-      document.querySelector("#memory-actor-tip").textContent = "Local memories belong to the current actor.";
+      document.querySelector("#memory-actor-tip").textContent = "Memories belong to the signed-in user.";
     }
     const memoryState = config.memory.enabled
       ? "connected"

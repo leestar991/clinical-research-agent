@@ -61,7 +61,13 @@ The API is available at `http://localhost:8000/api/invocations`, or on the port 
 `--app-port`. Requests can fail for a few seconds while the server starts; wait for
 `Uvicorn running on ...` in the log.
 
-Every request supplies a UUID `id`.
+Local browser login uses HTTP Basic. Enter your workspace user name and a valid workspace access
+token as the password. API clients can use Bearer authentication. For the curl examples below,
+`--user workspace` prompts for the token without placing it on the command line.
+Set the optional server environment variable `AGENT_ADMIN_USERS` to a comma-separated list of
+workspace user names to grant cross-user reads and memory pipeline access. See [project roles](ROLES.zh-CN.md).
+
+Every invocation supplies a UUID `id`.
 That ID is the invocation identifier and idempotency key. Supply the stable application session as
 the top-level `session_id`; agent-specific values live inside the opaque `input` object:
 
@@ -69,7 +75,7 @@ the top-level `session_id`; agent-specific values live inside the opaque `input`
 SESSION_ID=$(uuidgen)
 INVOCATION_ID=$(uuidgen)
 
-curl -sS http://localhost:8000/api/invocations \
+curl --user workspace -sS http://localhost:8000/api/invocations \
   -H 'Content-Type: application/json' \
   -d "{\"id\":\"$INVOCATION_ID\",\"session_id\":\"$SESSION_ID\",\"input\":{\"messages\":[{\"role\":\"user\",\"content\":\"What time is it? Use your tool.\"}]}}"
 ```
@@ -81,29 +87,23 @@ request while reusing the ID returns `409`.
 ## Long-term memory
 
 The Session Store keeps one conversation's state, keyed by the top-level `session_id`. The Memory Store
-keeps facts the agent recalls across conversations, keyed by `actor`: `runtime/adapter.py` reads
-`input.actor` and passes it to `memory_tools(actor)`. If you leave out `actor`, it defaults to the
-`session_id`, so long-term memory won't carry across sessions. For memory that persists, pass a stable
-`actor`, such as the end user's ID, from trusted application context. With a request-user
-(`auth = "user"`) tool bound, the adapter also namespaces a supplied `actor` to the signed-in user; see
-[Request-user authorization](#request-user-authorization).
+keeps facts across conversations under the authenticated workspace user. Omit `input.actor` or
+supply your own user name. The server verifies ownership for invocation results and event replay.
 
 During `agentbricks dev`, the memory tools save facts in `.agentbricks/local_agent_memory.db`.
 Recall searches keywords in the current actor's paths, descriptions and facts. In the local
 workbench, ask the agent to remember a fact, start a new session and ask for the fact again.
-API clients must keep the same `input.actor` across those two sessions. The same check against
+Use the same authenticated identity across the two sessions. The same check against
 a deployed app uses the bound Databricks Memory Store:
 
 ```bash
-ACTOR=user-123
-
 # Conversation 1: the agent saves a fact with its memory tool.
 agentbricks --profile <profile> endpoint invoke agent-bricks-<name> --path /api/invocations \
-  --json "{\"id\":\"$(uuidgen)\",\"session_id\":\"$(uuidgen)\",\"input\":{\"actor\":\"$ACTOR\",\"messages\":[{\"role\":\"user\",\"content\":\"Remember that I prefer answers as bullet points.\"}]}}"
+  --json "{\"id\":\"$(uuidgen)\",\"session_id\":\"$(uuidgen)\",\"input\":{\"messages\":[{\"role\":\"user\",\"content\":\"Remember that I prefer answers as bullet points.\"}]}}"
 
 # Conversation 2: a new session_id, same actor, so the agent can recall it.
 agentbricks --profile <profile> endpoint invoke agent-bricks-<name> --path /api/invocations \
-  --json "{\"id\":\"$(uuidgen)\",\"session_id\":\"$(uuidgen)\",\"input\":{\"actor\":\"$ACTOR\",\"messages\":[{\"role\":\"user\",\"content\":\"How do I like my answers formatted?\"}]}}"
+  --json "{\"id\":\"$(uuidgen)\",\"session_id\":\"$(uuidgen)\",\"input\":{\"messages\":[{\"role\":\"user\",\"content\":\"How do I like my answers formatted?\"}]}}"
 ```
 
 ## Invocation modes
@@ -115,15 +115,15 @@ agentbricks --profile <profile> endpoint invoke agent-bricks-<name> --path /api/
 
 ```bash
 INVOCATION_ID=$(uuidgen)
-curl -sN http://localhost:8000/api/invocations \
+curl --user workspace -sN http://localhost:8000/api/invocations \
   -H 'Content-Type: application/json' \
   -d "{\"id\":\"$INVOCATION_ID\",\"session_id\":\"$SESSION_ID\",\"input\":{\"messages\":[{\"role\":\"user\",\"content\":\"Count to three.\"}]},\"stream\":true}"
 
 INVOCATION_ID=$(uuidgen)
-curl -sS http://localhost:8000/api/invocations \
+curl --user workspace -sS http://localhost:8000/api/invocations \
   -H 'Content-Type: application/json' \
   -d "{\"id\":\"$INVOCATION_ID\",\"session_id\":\"$SESSION_ID\",\"input\":{\"messages\":[{\"role\":\"user\",\"content\":\"Summarize durable agents.\"}]},\"background\":true}" | jq
-curl -sS "http://localhost:8000/api/invocations/$INVOCATION_ID" | jq
+curl --user workspace -sS "http://localhost:8000/api/invocations/$INVOCATION_ID" | jq
 ```
 
 SSE records contain events translated by `runtime/adapter.py`: token `delta`s, completed `message`s,

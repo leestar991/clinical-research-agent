@@ -59,8 +59,8 @@ Include `memory_tools(actor)` in model and execution wiring. In local dev, SQLit
 configured. Outside local dev the SDK selects the managed tools.
 Its closures capture actor identity, so never reuse them across users. The application owns trusted
 actor/tenant authentication; a payload field alone does not establish identity. The
-template adapter reads `input.actor` and defaults it to the session ID, so memory carries across
-sessions only when the client sends a stable actor.
+project binds actor to the authenticated viewer before runtime acceptance. Sessions, memory and
+invocation reads enforce the two application roles described in [ROLES.zh-CN.md](ROLES.zh-CN.md).
 
 ### Tracing
 
@@ -91,32 +91,13 @@ interrupts require explicit mappings and must not be discarded to fit the exampl
 ### Invocation requests
 
 This template uses `/api/invocations`. Framework-specific fields belong under `input`.
-For an authorized cross-conversation memory check, put `actor` inside the `input` object alongside
-`messages`, not at the top level of the invocation:
-
-```json
-{
-  "id": "11111111-1111-4111-8111-111111111111",
-  "session_id": "memory-write",
-  "input": {
-    "messages": [
-      {"role": "user", "content": "Remember this test fact: my test color is teal."}
-    ],
-    "actor": "memory-test-actor"
-  }
-}
-```
-
-Use fresh invocation UUIDs and a distinct test fact. Once the fact is stored, send a recall question
-with a different `session_id`, keeping `input.actor` and the authenticated identity unchanged.
-Two turns in the same session test conversation history, not cross-conversation memory.
-
-A top-level `actor` is rejected by the transport. Message-list shorthand (`"input": [...]`) has no
-actor field; the adapter defaults actor identity to `session_id`, so changing sessions also changes
-the memory partition. Use object-form input for this check. With request-user authentication, the
-adapter namespaces an explicit actor by the authenticated principal. The actor field does not
-establish authentication; preserve the application's trusted identity mapping. Custom or migrated
-adapters may use a different input contract.
+Use a fresh invocation UUID and a stable public session ID for each conversation. Session IDs must be
+printable and safe to use as a single Store API path component. Omit `input.actor`
+or pass the authenticated user name. Object inputs and message lists use the same owner.
+The server stamps that owner outside user input in the persistent invocation request. Replay,
+polling, and idempotent submissions enforce ownership. Results created before ownership was stored
+are readable only by application administrators. Reuse the same authenticated user across sessions
+to test long-term recall.
 
 ### Interactive approval with user authentication
 

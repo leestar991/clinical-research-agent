@@ -13,9 +13,12 @@ from typing import Any
 
 from agent import memory as local_memory
 from agent.storage_config import storage_config
+from databricks.sdk.errors import NotFound
+from databricks_agentkit.runtime.auth import RequestAuthContext
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from runtime.access import authenticate_request, deployed as _is_deployed, read_namespace, session_key
 from pydantic import BaseModel, Field
 
 from databricks_agentkit import workspace_client
@@ -58,7 +61,6 @@ class SessionItemsRequest(BaseModel):
     items: list[dict[str, Any]] = Field(min_length=1)
 
 
-_USER_HEADERS = ("x-forwarded-email", "x-forwarded-user")
 # Set by `agentbricks dev` (display only; identifies the deployment binding). Spelled out rather than imported
 # from databricks_agentkit so the chat app still loads against an older SDK, which just never sets it.
 _DEV_BOUND_MEMORY_STORE_ENV = "AGENTBRICKS_DEV_BOUND_MEMORY_STORE"
@@ -83,30 +85,11 @@ def _session_store() -> str:
 
 
 def _request_actor(request: Request) -> str:
-    """The actor for a demo request — the signed-in user, so the panels show that user's own data.
-
-    Mirrors how the agent resolves its actor (same forwarded-identity headers), so the memory and
-    session views here list exactly what the agent reads/writes for the current user. Falls back to
-    ``"agent"`` locally / when unauthenticated.
-    """
-    for header in _USER_HEADERS:
-        if value := request.headers.get(header):
-            return value
-    return "agent"
+    return request.state.viewer.actor
 
 
 def _request_session_id(request: Request) -> str:
-    """Read the chat session from the session_id query parameter that demoUrl() sends."""
-    session_id = request.query_params.get("session_id")
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id is required")
-    return str(session_id)
-
-
-def _is_deployed() -> bool:
-    app_url = os.getenv("DATABRICKS_APP_URL", "")
-    is_local = app_url.startswith(("http://localhost", "http://127.0.0.1"))
-    return bool(os.getenv("DATABRICKS_APP_NAME")) and not is_local
+    return session_key(request.query_params.get("session_id"))
 
 
 # Tracing turns on only with both a destination and an experiment, mirroring
@@ -450,6 +433,8 @@ def _state_client() -> _ManagedStateClient:
 
 def _api_error(exc: Exception) -> HTTPException:
     code = getattr(exc, "error_code", None)
+    if isinstance(exc, NotFound):
+        return HTTPException(status_code=404, detail="Resource not found.")
     detail = f"{code}: {exc}" if code else str(exc)
     return HTTPException(status_code=502, detail=detail)
 
@@ -461,6 +446,24 @@ async def _managed_call(operation, *args):
         raise
     except Exception as exc:
         raise _api_error(exc) from exc
+
+
+async def ensure_owned_session(actor: str, session_id: str) -> dict:
+    # The Store resolves create conflicts atomically. Validate the returned owner on
+    # both creation and reuse before the checkpointer or a response touches this session.
+    session = await _managed_call(_state_client().ensure_session, actor, session_key(session_id))
+    if session.get("actor_id") != actor:
+        raise HTTPException(403, "Session belongs to another actor.")
+    return session
+
+
+async def checked_session(request: Request, session_id: str, *, write: bool = False) -> dict:
+    session = await _managed_call(_state_client().get_session, session_key(session_id))
+    viewer = request.state.viewer
+    owner = session.get("actor_id")
+    if not owner or (owner != viewer.actor and (write or not viewer.admin)):
+        raise HTTPException(403, "Session belongs to another actor.")
+    return session
 
 
 def _require_memory() -> None:
@@ -537,6 +540,7 @@ def _chat_session_items(result: dict[str, Any]) -> dict[str, Any]:
 
 def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     """Mount the Agent Bricks UI and its runtime control endpoints."""
+    app.middleware("http")(authenticate_request)
     app.mount("/ui-assets", StaticFiles(directory=_UI_ROOT), name="agentbricks-demo-ui-assets")
 
     @app.middleware("http")
@@ -569,8 +573,8 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
         return {
             "session_id": _request_session_id(request),
             "instance_id": _INSTANCE_ID,
-            # None when there is no signed-in identity; the page then shows a generic label.
-            "viewer": actor if actor != "agent" else None,
+            "viewer": actor,
+            "role": "admin" if request.state.viewer.admin else "user",
             "deployed": _is_deployed(),
             # The Databricks profile the agent signs in with locally (same setting it reads).
             "profile": os.getenv("DATABRICKS_CONFIG_PROFILE") or None,
@@ -604,7 +608,7 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
                 ),
                 "actor": actor,
                 # Pipelines run on deployed managed stores.
-                "pipelines": _is_deployed() and bool(memory_store and session_store),
+                "pipelines": request.state.viewer.admin and _is_deployed() and bool(memory_store and session_store),
                 # Under `agentbricks dev`, the store bound in agent.toml that connects on deploy.
                 "bound_store": os.getenv(_DEV_BOUND_MEMORY_STORE_ENV) or None,
             },
@@ -622,14 +626,10 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     async def demo_tools() -> dict:
         return await asyncio.to_thread(_tools)
 
-    def local_memory_actor(request: Request, selected: str | None = None) -> str:
-        actor = _request_actor(request)
-        if selected and selected != actor:
-            raise HTTPException(status_code=403, detail="Memory belongs to another actor.")
+    def memory_actor(request: Request, selected: str | None = None, *, write: bool = False) -> str:
+        actor = request.state.viewer.reading(selected)
         if app.auth_policy.requires_user:
-            from databricks_agentkit.runtime.auth import RequestAuthContext
-
-            auth = RequestAuthContext.from_headers(request.headers)
+            auth = RequestAuthContext.from_headers(request.headers) if write else read_namespace(request)
             try:
                 return auth.namespace("actor", actor)
             finally:
@@ -640,13 +640,15 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     async def create_memory_entry(request: Request, payload: MemoryEntryRequest) -> dict:
         if local_memory.use_local_memory():
             return await asyncio.to_thread(
-                local_memory.save_entry, local_memory_actor(request), payload.path, payload.content,
+                local_memory.save_entry, memory_actor(request, write=True), payload.path, payload.content,
                 _request_session_id(request), payload.description,
             )
         _require_memory()
+        if _session_store():
+            await ensure_owned_session(_request_actor(request), _request_session_id(request))
         return await _managed_call(
             _state_client().create_memory_entry,
-            _request_actor(request),
+            memory_actor(request, write=True),
             payload,
             _request_session_id(request),
         )
@@ -659,30 +661,31 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     ) -> dict:
         if local_memory.use_local_memory():
             rows = await asyncio.to_thread(
-                local_memory.entries, local_memory_actor(request, actor), path_prefix=path_prefix,
+                local_memory.entries, memory_actor(request, actor), path_prefix=path_prefix,
             )
             return {"managed_memory_entries": rows}
         # The managed workbench can browse other actors in its store.
         _require_memory()
         return await _managed_call(
-            _state_client().list_memory_entries, actor or _request_actor(request), path_prefix
+            _state_client().list_memory_entries, memory_actor(request, actor), path_prefix
         )
 
     @app.post("/api/demo/memory/search", include_in_schema=False)
     async def search_memory_entries(request: Request, payload: MemorySearchRequest) -> dict:
         if local_memory.use_local_memory():
             rows = await asyncio.to_thread(
-                local_memory.entries, local_memory_actor(request, payload.actor),
+                local_memory.entries, memory_actor(request, payload.actor),
                 query=payload.query, limit=payload.limit,
             )
             return {"managed_memory_entries": rows}
         _require_memory()
         return await _managed_call(
-            _state_client().search_memory_entries, payload.actor or _request_actor(request), payload
+            _state_client().search_memory_entries, memory_actor(request, payload.actor), payload
         )
 
     @app.get("/api/demo/memory/pipeline", include_in_schema=False)
-    async def get_memory_pipeline() -> dict:
+    async def get_memory_pipeline(request: Request) -> dict:
+        request.state.viewer.require_admin()
         _require_pipeline_stores()
         pipeline = await _managed_call(_state_client().find_memory_pipeline)
         if pipeline is None:
@@ -691,7 +694,8 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
         return {"pipeline": pipeline, "runs": _recent_runs(runs)}
 
     @app.post("/api/demo/memory/pipeline/run", include_in_schema=False, response_model=None)
-    async def run_memory_pipeline() -> dict | JSONResponse:
+    async def run_memory_pipeline(request: Request) -> dict | JSONResponse:
+        request.state.viewer.require_admin()
         _require_pipeline_stores()
         pipeline = await _managed_call(_state_client().find_memory_pipeline)
         if pipeline is None:
@@ -701,16 +705,12 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     @app.post("/api/demo/sessions", include_in_schema=False)
     async def ensure_session(request: Request) -> dict:
         _require_session()
-        return await _managed_call(
-            _state_client().ensure_session,
-            _request_actor(request),
-            _request_session_id(request),
-        )
+        return await ensure_owned_session(_request_actor(request), _request_session_id(request))
 
     @app.get("/api/demo/sessions", include_in_schema=False)
     async def list_sessions(request: Request) -> dict:
         session_id = _request_session_id(request)
-        actor = _request_actor(request)
+        actor = request.state.viewer.reading(request.query_params.get("actor"))
         if not _session_store():
             return {
                 "sessions": [
@@ -734,9 +734,7 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     @app.post("/api/demo/sessions/{session_id}/open", include_in_schema=False)
     async def open_session(request: Request, session_id: str) -> JSONResponse:
         _require_session()
-        session = await _managed_call(_state_client().get_session, session_id)
-        if session.get("actor_id") != _request_actor(request):
-            raise HTTPException(status_code=403, detail="Session belongs to another actor.")
+        await checked_session(request, session_id)
         return JSONResponse(
             {
                 "session_id": session_id,
@@ -748,11 +746,12 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     @app.get("/api/demo/session", include_in_schema=False)
     async def get_session(request: Request) -> dict:
         _require_session()
-        return await _managed_call(_state_client().get_session, _request_session_id(request))
+        return await checked_session(request, _request_session_id(request))
 
     @app.post("/api/demo/session/items", include_in_schema=False)
     async def append_session_items(request: Request, payload: SessionItemsRequest) -> dict:
         _require_session()
+        await checked_session(request, _request_session_id(request), write=True)
         return await _managed_call(
             _state_client().append_session_items,
             _request_session_id(request),
@@ -762,17 +761,27 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     @app.get("/api/demo/session/items", include_in_schema=False)
     async def list_session_items(request: Request) -> dict:
         session_id = _request_session_id(request)
-        actor = _request_actor(request)
-        if not app.auth_policy.requires_user:
-            return await _checkpoint_history(session_id, actor)
-
-        from databricks_agentkit.runtime.auth import RequestAuthContext
-
-        auth = RequestAuthContext.from_headers(request.headers)
-        try:
-            result = await _checkpoint_history(
-                auth.namespace("session", session_id), auth.namespace("actor", actor)
-            )
-            return {**result, "session_id": session_id}
-        finally:
-            auth.close()
+        actor = request.state.viewer.reading(request.query_params.get("actor"))
+        private_id, private_actor = session_id, actor
+        if app.auth_policy.requires_user:
+            auth = read_namespace(request)
+            try:
+                private_id = auth.namespace("session", session_id)
+                private_actor = auth.namespace("actor", actor)
+            finally:
+                auth.close()
+        if _session_store():
+            # The SDK keys checkpoints by physical session ID. Check its authoritative
+            # owner first; a history read of a new session must not create it.
+            try:
+                stored = await _managed_call(_state_client().get_session, private_id)
+            except HTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                return {"session_id": session_id, "session_items": [], "interrupts": []}
+            owner = stored.get("actor_id")
+            if not owner or (owner != private_actor and not request.state.viewer.admin):
+                raise HTTPException(403, "Session belongs to another actor.")
+            private_actor = owner
+        result = await _checkpoint_history(private_id, private_actor)
+        return {**result, "session_id": session_id}

@@ -87,7 +87,7 @@ agentbricks --profile "$PROFILE" deployments logs "$APP"
 
 ## 5. 在云端逐项验收
 
-以下调用通过 App 名和 profile 完成认证。模型测试使用临时 actor 和随机代码。每次新调用使用新的顶层 `id`；同一对话复用顶层 `session_id`；跨对话记忆复用 `input.actor`。请求格式见[项目运行时契约](AGENTKIT_CONTRACT.md)。
+以下调用通过 App 名和 profile 完成认证。模型测试使用已登录的测试账号和随机代码。每次新调用使用新的顶层 `id`；同一对话复用顶层 `session_id`；跨对话记忆复用同一登录身份。请求格式见[项目运行时契约](AGENTKIT_CONTRACT.md)。
 
 ### 确认后端和 App 授权
 
@@ -95,7 +95,6 @@ agentbricks --profile "$PROFILE" deployments logs "$APP"
 api() { agentbricks --profile "$PROFILE" -o json endpoint invoke "$APP" "$@"; }
 A=$(uuidgen)
 B=$(uuidgen)
-ACTOR="deploy-check-$(uuidgen)"
 api --method GET --path /api/ui/config --query "session_id=$A" |
   jq '.body | {deployed, session, memory, streaming, tracing}'
 ```
@@ -116,8 +115,8 @@ agentbricks --profile "$PROFILE" memory stores permissions list "$MEMORY_RESOURC
 ```bash
 turn() {
   local body
-  body=$(jq -nc --arg id "$1" --arg sid "$2" --arg actor "$ACTOR" --arg msg "$3" \
-    '{id:$id, session_id:$sid, input:{actor:$actor, messages:[{role:"user", content:$msg}]}}')
+  body=$(jq -nc --arg id "$1" --arg sid "$2" --arg msg "$3" \
+    '{id:$id, session_id:$sid, input:{messages:[{role:"user", content:$msg}]}}')
   api --path /api/invocations --json "$body"
 }
 
@@ -155,7 +154,7 @@ agentbricks --profile "$PROFILE" tracing list --experiment-name "$EXPERIMENT" --
 | --- | --- |
 | 启动时报缺少持久化 Runtime Store | 检查是否把 `cloud` 模式用于本地启动；在云端检查部署日志中的 Runtime Store 配置、资源挂载和 App 身份。 |
 | App 可打开，调用模型或存储却返回 403 | 先看哪个资源拒绝了哪个身份。App 调用模型和 Store 使用服务主体；验收人员直接列出 Store 授权或查看实验使用自己的 profile。 |
-| 同一会话能续聊，新会话找不到记忆 | 核对两次请求使用相同的可信 `input.actor`、不同的 `session_id`，并检查第一轮是否真正调用 `remember`。省略 actor 时项目默认使用 session ID。 |
+| 同一会话能续聊，新会话找不到记忆 | 核对两次请求使用相同的可信 `input.actor`、不同的 `session_id`，并检查第一轮是否真正调用 `remember`。省略 actor 时服务端使用已认证用户名。 |
 | 新环境查不到以前的结果 | 核对 profile、完整 App 名、调用 ID 和调用身份。切换环境后，本地保存的调用 ID 仍属于原本地数据库。 |
 
 回到本地时，把 `agent/storage.toml` 设回 `auto` 或 `local`，从原项目目录执行 `agentbricks dev`。使用原 `[sqlite]` 路径即可继续读取已有本地数据。云端绑定继续保存在 `agent.toml`。
