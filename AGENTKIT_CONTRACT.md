@@ -49,7 +49,9 @@ another source edit.
 Use `checkpointer()` for managed state and merge `thread_config(session_id, actor)` into every
 graph run. The helper selects the bound Session Store or an in-process saver; explicit arguments
 and environment overrides take precedence. It caches the saver per process, so restart after a
-binding change. The application state must be serializable by the selected saver.
+binding change. In this project, `agentbricks dev` opens a local SQLite checkpointer for the
+server lifespan unless a managed store is explicitly configured. Graph runs, checkpoint recovery,
+and UI history must use the same actor-scoped thread. The application state must be serializable by the selected saver.
 
 Include `memory_tools(actor)` in model and execution wiring. It returns no tools when unconfigured.
 Its closures capture actor identity, so never reuse them across users. The application owns trusted

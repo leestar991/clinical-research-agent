@@ -11,7 +11,7 @@ from langgraph.types import Command
 from databricks_agentkit import InvocationContext
 from databricks_agentkit.langgraph.messages import delta_contents, message_items
 from databricks_agentkit.langgraph.responses import checkpointed_messages
-from databricks_agentkit.langgraph.session_store import thread_config
+from agent.sessions import thread_config
 from databricks_agentkit.runtime.auth import AuthError
 
 

@@ -124,9 +124,11 @@ login unless that session has expired. Automatic crash recovery still cannot rec
 Malformed middleware decisions return `INVALID_APPROVAL` before the resume value is checkpointed,
 so the user can correct the decision and submit it with a new invocation ID.
 
-The default checkpointer is process-local. Bind a managed Session Store to preserve multi-turn and
-paused LangGraph state across restarts (session stores are off by default in `agentbricks dev`; the
-binding takes effect after `agentbricks deploy`):
+During `agentbricks dev`, SQLite saves conversation checkpoints and pending approvals in
+`.agentbricks/local_agent_sessions.db`. Reuse the same session ID and actor after restarting the
+server to continue a conversation. The browser remembers its current session ID. Invocation
+status and event replay still use the in-memory Runtime Store. To persist graph checkpoints
+on Databricks, bind a managed Session Store before deploying:
 
 ```bash
 agentbricks sessions bind my-agent-sessions

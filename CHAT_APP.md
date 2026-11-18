@@ -22,7 +22,7 @@ capability choice; hover or focus a mode to see what it does.
 
 Memory and session stores are off by default in `agentbricks dev`. The chat app shows "Not
 connected" for memory locally even when a store is bound, and the session indicator shows the
-in-process state. Both connect after `agentbricks deploy`. To use real stores locally, set
+local SQLite checkpointer. Both managed stores connect after `agentbricks deploy`. To use real stores locally, set
 `AGENT_MEMORY_STORE` and `AGENT_SESSION_STORE` in the project's `.env`.
 
 Tools opens a pane listing the `agent.toml` bindings, the Python tools from `agent.tools.all_tools()`,
@@ -69,8 +69,8 @@ sessions.
 The Sessions card creates new session UUIDs in the browser. With a managed Session Store,
 `GET /api/demo/sessions` lists the most recent sessions for the signed-in actor and each Open action
 calls `POST /api/demo/sessions/{session_id}/open`. Opening a session verifies ownership and reloads
-its transcript and pending LangGraph state. In local in-memory mode only the current browser session
-can be listed because there is no shared session index.
+its transcript and pending LangGraph state. In local SQLite mode the workbench shows the current browser session and reloads its
+history after a restart.
 
 Transcript responses include only user, assistant, tool, system, and human-decision message items;
 checkpoint fragments remain in Session Store but are never returned to the chat UI.

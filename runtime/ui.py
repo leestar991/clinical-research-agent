@@ -497,9 +497,9 @@ async def _run_memory_pipeline(pipeline: str) -> dict | JSONResponse:
 
 
 async def _checkpoint_history(session_id: str, actor: str) -> dict[str, Any]:
-    from databricks_agentkit.langgraph import read_history
+    from agent.sessions import session_history
 
-    return await read_history(session_id, actor)
+    return await session_history(session_id, actor)
 
 
 def _chat_sessions(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -548,7 +548,10 @@ def install_ui(app: FastAPI) -> None:
     async def ui_config(request: Request) -> dict:
         actor = _request_actor(request)
         memory_store = _memory_store()
+        from agent.sessions import use_local_sqlite
+
         session_store = _session_store()
+        local_sqlite = use_local_sqlite()
         default_model = _default_model()
         runtime_store_persistent = runtime_store_is_persistent_environment()
         runtime_store_mode = (
@@ -575,10 +578,12 @@ def install_ui(app: FastAPI) -> None:
                 "mode": runtime_store_mode,
             },
             "session": {
-                "durable": bool(session_store),
+                "durable": bool(session_store) or local_sqlite,
                 "managed": bool(session_store),
                 "history": True,
-                "mode": "Managed Session Store" if session_store else "In-process checkpointer",
+                "mode": "Managed Session Store" if session_store else (
+                    "Local SQLite" if local_sqlite else "In-process checkpointer"
+                ),
                 "store": session_store or None,
                 "actor": actor,
             },

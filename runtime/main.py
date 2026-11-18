@@ -1,10 +1,12 @@
 """Run the LangGraph agent with the optional Agent Bricks chat app."""
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
 from agent.agent import configure
+from agent.sessions import local_sqlite_sessions, use_local_sqlite
 from dotenv import load_dotenv
 from runtime.adapter import invoke, recover
 from runtime.ui import install_ui
@@ -17,6 +19,16 @@ load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env", override=False)
 configure()
 
 app = DurableAgentServer()
+if use_local_sqlite():
+    runtime_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def local_lifespan(server):
+        async with local_sqlite_sessions(), runtime_lifespan(server) as state:
+            yield state
+
+    app.router.lifespan_context = local_lifespan
+
 app.invoke(invoke)
 app.recover(recover)
 install_ui(app)

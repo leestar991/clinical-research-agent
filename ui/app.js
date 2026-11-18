@@ -1777,11 +1777,13 @@ async function loadConfig() {
     }[memoryState];
     setCapability(
       elements.sessionStatus,
-      config.session.managed ? true : config.session.history ? "degraded" : false,
+      config.session.durable ? true : config.session.history ? "degraded" : false,
       config.session.managed
         ? `Connected to Session Store "${config.session.store}" for actor ${config.session.actor}. State is durable and shareable.`
-        : "Session state is kept in process and resets when the app restarts.",
-      config.session.managed ? null : "agentbricks sessions bind <store-name>",
+        : config.session.durable
+          ? "SQLite saves conversation history and pending approvals across local restarts."
+          : "Session state is kept in process and resets when the app restarts.",
+      config.session.durable ? null : "agentbricks sessions bind <store-name>",
     );
     setCapability(
       elements.memoryStatus,
@@ -1814,7 +1816,7 @@ async function loadConfig() {
     elements.sessionStoreLabel.textContent = config.session.managed
       ? `${config.session.store} · actor ${config.session.actor} · the browser session ID keys transcript and checkpoint state.`
       : config.session.history
-        ? "Messages load from the in-process LangGraph checkpoint for the current browser session."
+        ? `Messages load from the ${config.session.mode} for the current browser session.`
         : "Session history is unavailable.";
     addEvent("runtime.config", config);
     void refreshSessionView({ hydrateChat: true });
