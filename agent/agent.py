@@ -33,13 +33,16 @@ from databricks_agentkit.langgraph.session_store import (
 from databricks_agentkit.runtime.auth import AuthError
 from databricks_agentkit.runtime.tool_manifest import project_root, resolve_model_service
 
-# A Unity Catalog AI Gateway model service, served from the `system.ai` schema and queried through
-# the gateway (see `use_ai_gateway=True` below). Swap for any `system.ai.*` model service your
-# workspace exposes — the demo chat app's picker lists what's available.
-# `agentbricks experimental models bind` swaps this for a model service you own (wired in by `agentbricks deploy`
-# as AGENT_MODEL_SERVICE_AGENT), so `agentbricks experimental models upgrade` can change the model without a code
-# change.
-MODEL = resolve_model_service() or "system.ai.claude-sonnet-5-5"
+
+def _configured_default_model() -> str:
+    with (project_root() / "agent.toml").open("rb") as manifest:
+        model = tomllib.load(manifest).get("agent", {}).get("default_model")
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("agent.toml: agent.default_model must be a non-empty model service name")
+    return model.strip()
+
+
+MODEL = resolve_model_service() or _configured_default_model()
 
 # Tools that require human approval before they run. Map a tool name to True to allow every decision
 # (approve / edit / reject / respond), or to a config dict to restrict them (see HumanInTheLoopMiddleware).

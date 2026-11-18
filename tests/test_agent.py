@@ -74,6 +74,19 @@ def test_chat_model_forwards_account_routing_header(monkeypatch):
     assert model._get_client_kwargs()["default_headers"] == {"X-Databricks-Org-Id": "123456"}
 
 
+def test_default_model_reads_project_manifest(monkeypatch, tmp_path):
+    from agent.agent import _configured_default_model
+
+    monkeypatch.setenv("AGENTBRICKS_PROJECT_ROOT", str(tmp_path))
+    manifest = tmp_path / "agent.toml"
+    manifest.write_text('[agent]\ndefault_model = "catalog.schema.my-model"\n')
+    assert _configured_default_model() == "catalog.schema.my-model"
+
+    manifest.write_text('[agent]\ndefault_model = ""\n')
+    with pytest.raises(ValueError, match="agent.default_model"):
+        _configured_default_model()
+
+
 @pytest.mark.parametrize(
     ("endpoint", "responses_api"),
     [("system.ai.gpt-6-astra", True), ("system.ai.claude-sonnet-5-5", False)],

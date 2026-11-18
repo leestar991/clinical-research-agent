@@ -21,7 +21,11 @@ project and follow the generated prompt in your coding agent. The migration skil
 [AGENTKIT_CONTRACT.md](AGENTKIT_CONTRACT.md), which owns integration requirements. This README owns
 configuration and client examples; [AGENTS.md](AGENTS.md) provides the development map.
 
-## Model API protocol
+## Model configuration
+
+Set `default_model` under `[agent]` in [agent.toml](agent.toml) and restart the server to apply
+the change. The chat UI gets the effective default from the server. A bound model service
+(`AGENT_MODEL_SERVICE_AGENT`) takes precedence, and a request can select a model with `input.model`.
 
 Set `use_responses_api = true` in the model's table in [agent.toml](agent.toml) to use the
 Responses API. For example, `[models."system.ai.gpt-6-astra"]` enables tool calls with reasoning
