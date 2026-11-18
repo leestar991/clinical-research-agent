@@ -12,7 +12,7 @@ examples. Keep this file as a development map rather than repeating those rules.
 ## Commands
 
 ```bash
-agentbricks dev
+databricks apps run-local --profile <profile> --entry-point app.local.yaml --port 8000 --app-port 8001
 uv run pytest
 agentbricks --profile <profile> deploy <name> --source .
 ```

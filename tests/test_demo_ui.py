@@ -552,12 +552,15 @@ def test_managed_memory_and_session_routes(monkeypatch):
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
     monkeypatch.setenv("MLFLOW_EXPERIMENT_ID", "123456")
     monkeypatch.setattr(ui, "_workspace_host", lambda: "https://example.databricks.com")
+    assert client.get("/api/ui/config").json()["tracing"] is None
+    monkeypatch.setenv("AGENT_ADMIN_USERS", "alice")
     tracing = client.get("/api/ui/config").json()["tracing"]
     assert tracing["enabled"] is True
     assert tracing["url"] == "https://example.databricks.com/ml/experiments/123456"
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     monkeypatch.delenv("MLFLOW_EXPERIMENT_ID", raising=False)
     assert client.get("/api/ui/config").json()["tracing"]["enabled"] is False
+    monkeypatch.delenv("AGENT_ADMIN_USERS")
 
     assert (
         client.post("/api/demo/sessions", json={"session_id": "ignored"}).json()["session_id"]

@@ -12,6 +12,7 @@ from runtime.access import deployed
 from runtime.adapter import invoke, recover
 from runtime.server import install_runtime_access
 from runtime.sqlite_store import local_runtime_store
+from runtime.traces import configure_local_traces
 from runtime.ui import install_ui
 
 from databricks_agentkit import DurableAgentServer
@@ -19,6 +20,7 @@ from databricks_agentkit import DurableAgentServer
 # override=False so injected DATABRICKS_* (from `agentbricks dev -p` or the deploy platform) win over a
 # checked-in .env.
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env", override=False)
+configure_local_traces()
 configure()
 
 runtime_store = local_runtime_store()

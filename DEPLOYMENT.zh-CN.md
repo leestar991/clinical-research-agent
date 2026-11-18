@@ -157,4 +157,4 @@ agentbricks --profile "$PROFILE" tracing list --experiment-name "$EXPERIMENT" --
 | 同一会话能续聊，新会话找不到记忆 | 核对两次请求使用相同的可信 `input.actor`、不同的 `session_id`，并检查第一轮是否真正调用 `remember`。省略 actor 时服务端使用已认证用户名。 |
 | 新环境查不到以前的结果 | 核对 profile、完整 App 名、调用 ID 和调用身份。切换环境后，本地保存的调用 ID 仍属于原本地数据库。 |
 
-回到本地时，把 `agent/storage.toml` 设回 `auto` 或 `local`，从原项目目录执行 `agentbricks dev`。使用原 `[sqlite]` 路径即可继续读取已有本地数据。云端绑定继续保存在 `agent.toml`。
+回到本地时，把 `agent/storage.toml` 设回 `auto` 或 `local`，从原项目目录按 [README 的本地启动命令](README.md#run-locally) 启动；管理员可在 Traces 中查看当前会话。使用原 `[sqlite]` 路径即可继续读取已有本地数据。云端绑定继续保存在 `agent.toml`。
