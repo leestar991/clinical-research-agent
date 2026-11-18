@@ -13,7 +13,7 @@
 
 - **云端**由 Databricks Apps 入口验证用户登录和 App 访问权，并将认证身份转给后端。部署应保持后端只经受信的 Apps 入口访问。
 - **本地**工作台从启动服务的 Databricks CLI profile 获取工作区用户名。直接打开 `http://localhost:8000/` 即可使用。同一实例的浏览器共用该身份及其应用角色，适用于本机单用户开发。如果授权过期，在终端运行 `databricks auth login --profile <profile>`，通过 Databricks 网页完成授权后刷新工作台。API 客户端也可显式发送 Bearer token，以该令牌所属用户的身份访问。
-- **管理员名单**通过服务端环境变量 `AGENT_ADMIN_USERS` 提供，值为用逗号分隔的工作区用户名，与已认证用户名精确匹配。例：`AGENT_ADMIN_USERS=admin1@example.org,admin2@example.org`。本地在未跟踪的 `.env` 中设置后重启；云端在 App 部署环境中设置后重新启动。默认所有已认证用户均为普通用户。
+- **管理员名单**统一在 [app.yaml](app.yaml) 的 `env` 中配置 `AGENT_ADMIN_USERS`，多个工作区用户名用逗号分隔。服务端将已认证用户名与名单精确匹配，名单为空时所有用户都是普通用户。修改名单后，本地重启 `agentbricks dev` 或 `databricks apps run-local --entry-point app.yaml`，云端重新部署。
 - **查询接口**支持管理员在会话列表、会话历史、记忆列表中指定查询参数 `actor`，记忆搜索在请求体中指定 `actor`。已知托管会话或调用 ID 时可直接读取。配置请求用户工具后，管理员查询云端目标用户的私有命名空间还可提供 `principal_id`（目标用户的 Apps 转发用户 ID）。查询目标不会改变发起调用或写入时的身份。
 
 ## 工程职责与平台权限

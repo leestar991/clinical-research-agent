@@ -1,4 +1,7 @@
 command: ["uv", "run", "start-server"]
+env:
+  - name: AGENT_ADMIN_USERS
+    value: "v_louli@fosunpharma.com"
 # databricks apps listen by default on port 8000
 #
 # Agent Bricks injects the deployed Runtime Store endpoint. The LangGraph checkpointer remains
