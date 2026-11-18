@@ -1,27 +1,22 @@
 """Actor-scoped long-term memory tools for local development."""
 
-import os
 import re
 import sqlite3
 from contextlib import closing, contextmanager
-from pathlib import Path
 
 from databricks_agentkit.langgraph import memory_tools as managed_memory_tools
-from databricks_agentkit.runtime.store import RUNTIME_STORE_LOCAL_ENV
-from databricks_agentkit.runtime.tool_manifest import resolve_memory_store
+from agent.storage_config import storage_config
 from langchain_core.tools import BaseTool, tool
 
-MEMORY_DB = Path(".agentbricks/local_agent_memory.db")
-
-
 def use_local_memory() -> bool:
-    return os.getenv(RUNTIME_STORE_LOCAL_ENV, "").lower() == "true" and not resolve_memory_store()
+    return storage_config().uses_sqlite("memory")
 
 
 @contextmanager
 def _database():
-    MEMORY_DB.parent.mkdir(mode=0o700, exist_ok=True)
-    with closing(sqlite3.connect(MEMORY_DB, timeout=10)) as db, db:
+    path = storage_config().memory
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with closing(sqlite3.connect(path, timeout=10)) as db, db:
         db.row_factory = sqlite3.Row
         db.execute("""
             CREATE TABLE IF NOT EXISTS memories (

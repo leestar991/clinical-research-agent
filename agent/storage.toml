@@ -1,0 +1,11 @@
+# Restart the server after changing this file.
+# auto: SQLite in agentbricks dev, AgentKit stores on deployment.
+# local: always use the three SQLite files below.
+# cloud: use the stores provided by an Agent Bricks deployment.
+mode = "auto"
+
+[sqlite]
+# Paths are relative to the project working directory; absolute paths are also supported.
+sessions = ".agentbricks/local_agent_sessions.db"
+memory = ".agentbricks/local_agent_memory.db"
+runtime = ".agentbricks/local_agent_runtime.db"

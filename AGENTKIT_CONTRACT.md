@@ -21,7 +21,8 @@ needs runtime wiring as well as manifest configuration.
 
 ### Project and startup
 
-Use `agent.toml` for framework, tool/store bindings, and tracing. The existing `.agentbricks/project.toml`
+Use `agent/storage.toml` for the application storage profile and SQLite paths. Use `agent.toml`
+for framework, managed tool/store bindings, and tracing. The existing `.agentbricks/project.toml`
 file records framework and template provenance; keep it when working with projects that have it.
 Metadata alone does not integrate adapters. Install a compatible `databricks-agentbricks[langgraph]`
 distribution, supply the real command in `app.yaml`, load configuration before adapters, and listen
@@ -134,7 +135,8 @@ unsupported because no new authenticated user request supplies credentials.
 
 Runtime Store persistence covers invocations and emitted events. Session Store persistence covers
 graph checkpoints and paused interrupts. A durable Runtime Store alone does not preserve graph
-state. `dev` uses process-local invocation storage; deployment attaches a Lakebase-backed
+state. `dev` uses a separate SQLite durable Runtime Store with transactional attempt fencing,
+terminal results, and ordered event cursors; deployment attaches a Lakebase-backed
 Runtime Store.
 
 Register recovery when intended. Resume a checkpoint only when metadata associates it with the

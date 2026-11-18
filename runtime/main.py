@@ -9,6 +9,7 @@ from agent.agent import configure
 from agent.sessions import local_sqlite_sessions, use_local_sqlite
 from dotenv import load_dotenv
 from runtime.adapter import invoke, recover
+from runtime.sqlite_store import local_runtime_store
 from runtime.ui import install_ui
 
 from databricks_agentkit import DurableAgentServer
@@ -18,7 +19,8 @@ from databricks_agentkit import DurableAgentServer
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env", override=False)
 configure()
 
-app = DurableAgentServer()
+runtime_store = local_runtime_store()
+app = DurableAgentServer(runtime_store=runtime_store)
 if use_local_sqlite():
     runtime_lifespan = app.router.lifespan_context
 
@@ -31,7 +33,7 @@ if use_local_sqlite():
 
 app.invoke(invoke)
 app.recover(recover)
-install_ui(app)
+install_ui(app, local_runtime=runtime_store is not None)
 
 
 def main() -> None:

@@ -1,17 +1,14 @@
 """Session checkpoints for the local workbench and the managed AgentKit runtime."""
 
 import json
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from databricks_agentkit.langgraph import checkpointer as agentkit_checkpointer
 from databricks_agentkit.langgraph import read_history
 from databricks_agentkit.langgraph import thread_config as agentkit_thread_config
 from databricks_agentkit.langgraph.messages import message_items
-from databricks_agentkit.runtime.store import RUNTIME_STORE_LOCAL_ENV
-from databricks_agentkit.runtime.tool_manifest import resolve_session_store
+from agent.storage_config import storage_config
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.message import add_messages
@@ -20,7 +17,7 @@ _sqlite_saver: BaseCheckpointSaver | None = None
 
 
 def use_local_sqlite() -> bool:
-    return os.getenv(RUNTIME_STORE_LOCAL_ENV, "").lower() == "true" and not resolve_session_store()
+    return storage_config().uses_sqlite("sessions")
 
 
 @asynccontextmanager
@@ -28,9 +25,9 @@ async def local_sqlite_sessions() -> AsyncIterator[None]:
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
     global _sqlite_saver
-    directory = Path(".agentbricks")
-    directory.mkdir(mode=0o700, exist_ok=True)
-    async with AsyncSqliteSaver.from_conn_string(str(directory / "local_agent_sessions.db")) as saver:
+    path = storage_config().sessions
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    async with AsyncSqliteSaver.from_conn_string(str(path)) as saver:
         _sqlite_saver = saver
         try:
             yield

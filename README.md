@@ -1,8 +1,9 @@
 # Clinical Research Agent
 
-A LangGraph agent served by `databricks_agentkit.DurableAgentServer`. The managed runtime keeps invocation state and events in
-memory during `agentbricks dev`. Deployment attaches a persistent Runtime Store, so invocation state and
-events survive process loss and interrupted work can be recovered.
+A LangGraph agent served by `databricks_agentkit.DurableAgentServer`. During `agentbricks dev`, the Runtime Store saves requests, results,
+status and ordered events in `.agentbricks/local_agent_runtime.db`. After restarting in the same
+project directory, use the original invocation ID to fetch its result or replay its event stream.
+Deployment uses the managed Lakebase Runtime Store.
 
 The generated project separates portable agent execution from the managed HTTP protocol:
 
@@ -19,6 +20,22 @@ To bring an existing LangGraph agent, run `agentbricks init --framework langgrap
 project and follow the generated prompt in your coding agent. The migration skill and this template share
 [AGENTKIT_CONTRACT.md](AGENTKIT_CONTRACT.md), which owns integration requirements. This README owns
 configuration and client examples; [AGENTS.md](AGENTS.md) provides the development map.
+
+## Storage profiles
+
+Set `mode` in [agent/storage.toml](agent/storage.toml) and restart the server after a change.
+
+| Mode | Session, memory and runtime storage |
+| --- | --- |
+| `auto` (default) | `agentbricks dev` uses SQLite. An explicitly configured `AGENT_SESSION_STORE` or `AGENT_MEMORY_STORE` takes precedence for that store. Deployment uses AgentKit. |
+| `local` | All three stores use the paths in the `[sqlite]` table. Run from the project directory with development dependencies installed. |
+| `cloud` | AgentKit uses deployment-provided connections. Startup requires a configured persistent Runtime Store. |
+
+The default SQLite files live under the ignored `.agentbricks/` directory. Point a path at an
+existing database to reuse its data. Changing profiles selects storage for subsequent runs;
+data migration is a separate operation. For cloud deployment, set the managed session and memory
+bindings in [agent.toml](agent.toml). Agent Bricks provisions and connects the Lakebase Runtime
+Store on deployment. The default `auto` profile works in both environments.
 
 ## Run locally
 
@@ -130,7 +147,7 @@ so the user can correct the decision and submit it with a new invocation ID.
 During `agentbricks dev`, SQLite saves conversation checkpoints and pending approvals in
 `.agentbricks/local_agent_sessions.db`. Reuse the same session ID and actor after restarting the
 server to continue a conversation. The browser remembers its current session ID. Invocation
-status and event replay still use the in-memory Runtime Store. To persist graph checkpoints
+status and event replay use the separate local SQLite Runtime Store. To persist graph checkpoints
 on Databricks, bind a managed Session Store before deploying:
 
 ```bash

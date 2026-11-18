@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from agent import memory as local_memory
+from agent.storage_config import storage_config
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -68,12 +69,16 @@ def _memory_store() -> str:
     # panels reflect exactly the store the agent reads/writes.
     from databricks_agentkit.runtime.tool_manifest import resolve_memory_store
 
+    if storage_config().uses_sqlite("memory"):
+        return ""
     return (resolve_memory_store() or "").strip().strip("/")
 
 
 def _session_store() -> str:
     from databricks_agentkit.runtime.tool_manifest import resolve_session_store
 
+    if storage_config().uses_sqlite("sessions"):
+        return ""
     return (resolve_session_store() or "").strip()
 
 
@@ -530,7 +535,7 @@ def _chat_session_items(result: dict[str, Any]) -> dict[str, Any]:
     return {**result, "session_items": items}
 
 
-def install_ui(app: FastAPI) -> None:
+def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     """Mount the Agent Bricks UI and its runtime control endpoints."""
     app.mount("/ui-assets", StaticFiles(directory=_UI_ROOT), name="agentbricks-demo-ui-assets")
 
@@ -555,10 +560,12 @@ def install_ui(app: FastAPI) -> None:
         session_store = _session_store()
         local_sqlite = use_local_sqlite()
         default_model = _default_model()
-        runtime_store_persistent = runtime_store_is_persistent_environment()
+        runtime_store_persistent = local_runtime or runtime_store_is_persistent_environment()
         runtime_store_mode = (
             "Runtime Store" if runtime_store_persistent else "In-process Runtime Store"
         )
+        if local_runtime:
+            runtime_store_mode = "Local SQLite Runtime Store"
         return {
             "session_id": _request_session_id(request),
             "instance_id": _INSTANCE_ID,
@@ -592,7 +599,7 @@ def install_ui(app: FastAPI) -> None:
             "memory": {
                 "enabled": bool(memory_store) or sqlite_memory,
                 **({"backend": "sqlite"} if sqlite_memory else {}),
-                "store": local_memory.MEMORY_DB.name if sqlite_memory else (
+                "store": storage_config().memory.name if sqlite_memory else (
                     f"memory-stores/{memory_store}" if memory_store else None
                 ),
                 "actor": actor,
