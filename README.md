@@ -23,6 +23,8 @@ configuration and client examples; [AGENTS.md](AGENTS.md) provides the developme
 
 ## Storage profiles
 
+[中文部署指南：从本地 SQLite 切换到云端托管存储](DEPLOYMENT.zh-CN.md)
+
 Set `mode` in [agent/storage.toml](agent/storage.toml) and restart the server after a change.
 
 | Mode | Session, memory and runtime storage |
