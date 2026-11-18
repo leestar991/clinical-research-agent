@@ -74,6 +74,25 @@ def test_chat_model_forwards_account_routing_header(monkeypatch):
     assert model._get_client_kwargs()["default_headers"] == {"X-Databricks-Org-Id": "123456"}
 
 
+@pytest.mark.parametrize(
+    ("endpoint", "responses_api"),
+    [("system.ai.gpt-6-astra", True), ("system.ai.claude-sonnet-5-5", False)],
+)
+async def test_graph_uses_tool_compatible_model_api(monkeypatch, endpoint, responses_api):
+    from agent import agent as agent_module
+    from langchain_core.messages import HumanMessage
+
+    monkeypatch.setattr(agent_module, "create_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(agent_module, "_app_workspace_client", lambda: None)
+    graph = await agent_module.create_agent_graph("test-actor", endpoint)
+    model = graph["model"]
+    assert model.use_responses_api is responses_api
+    tools = model.bind_tools(graph["tools"]).kwargs["tools"]
+    payload = model._prepare_inputs([HumanMessage(content="time?")], tools=tools)
+    assert ("input" if responses_api else "messages") in payload
+    assert "get_current_time" in [t.get("function", t)["name"] for t in payload["tools"]]
+
+
 def test_thread_config_from_session_id():
     # actor_id rides alongside thread_id — the durable saver maps it onto the Session's actor.
     assert thread_config("abc-123") == {

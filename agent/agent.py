@@ -132,7 +132,11 @@ async def create_agent_graph(
         # use_ai_gateway routes to the Unity Catalog AI Gateway (`<host>/ai-gateway/mlflow/v1`), so
         # `endpoint` is a `system.ai.*` model name rather than a serving-endpoint name.
         model=_RoutedChatDatabricks(
-            endpoint=endpoint, workspace_client=_app_workspace_client(), use_ai_gateway=True
+            endpoint=endpoint,
+            workspace_client=_app_workspace_client(),
+            use_ai_gateway=True,
+            # Astra requires the Responses API to combine reasoning and function tools.
+            use_responses_api=endpoint == "system.ai.gpt-6-astra",
         ),
         tools=tools,
         middleware=middleware,
