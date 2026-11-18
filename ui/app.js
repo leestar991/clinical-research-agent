@@ -117,10 +117,6 @@ function setSessionId(value) {
   state.sessionId = nextSessionId;
   localStorage.setItem(SESSION_STORAGE_KEY, state.sessionId);
   elements.sessionId.textContent = state.sessionId;
-  const traceLink = document.querySelector('[data-capability="traces"] .cap-link');
-  if (traceLink && state.config?.tracing?.url === "/api/demo/traces") {
-    traceLink.href = demoUrl("/api/demo/traces");
-  }
 }
 
 setSessionId(state.sessionId);
@@ -1812,8 +1808,6 @@ async function loadConfig() {
         memoryState
       ],
     );
-    document.querySelector('[data-capability="traces"]').hidden = config.role !== "admin";
-    const traceUrl = config.tracing?.url;
     elements.tracingMode.textContent = config.tracing?.enabled ? "Connected" : "Not configured";
     setCapability(
       elements.tracingStatus,
@@ -1823,7 +1817,7 @@ async function loadConfig() {
         : "Tracing is off. Set an MLflow destination and experiment to record traces.",
       config.tracing?.enabled ? null : "agentbricks tracing bind --experiment-name <path>",
       config.tracing?.enabled && config.tracing?.url
-        ? { href: traceUrl === "/api/demo/traces" ? demoUrl(traceUrl) : traceUrl, label: "View session traces" }
+        ? { href: config.tracing.url, label: "View traces in MLflow" }
         : null,
     );
     elements.newSession.disabled = state.busy;

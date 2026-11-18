@@ -53,22 +53,12 @@ Store on deployment. The default `auto` profile works in both environments.
 
 ## Run locally
 
-Start the local workbench with embedded MLflow. This entry point opens the app proxy on port
-8000 and keeps trace storage inside the application process.
-
 ```bash
-databricks apps run-local --profile ws-poc --entry-point app.local.yaml --port 8000 --app-port 8001
+agentbricks dev
 ```
 
-Administrators can open **Traces → View session traces** to inspect MLflow spans, timings,
-inputs and outputs for the active chat. The trace page also accepts a session ID. Regular
-users' conversations are recorded and only an authenticated application administrator can
-read traces through the workbench. Local MLflow data lives under `.agentbricks/tracing/`.
-Use the local entry point above for this setup; the generic `agentbricks dev` command also
-launches a standalone tracking HTTP server.
-
 The API is available at `http://localhost:8000/api/invocations`, or on the port you pass with
-`--port`. Requests can fail for a few seconds while the server starts; wait for
+`--app-port`. Requests can fail for a few seconds while the server starts; wait for
 `Uvicorn running on ...` in the log.
 
 Local browser login uses HTTP Basic. Enter your workspace user name and a valid workspace access

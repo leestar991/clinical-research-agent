@@ -18,7 +18,6 @@ from databricks_agentkit.runtime.auth import RequestAuthContext
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from runtime.traces import local_tracing, router as trace_router
 from runtime.access import authenticate_request, deployed as _is_deployed, read_namespace, session_key
 from pydantic import BaseModel, Field
 
@@ -123,9 +122,7 @@ def _tracing() -> dict:
     experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "").strip()
     enabled = bool(destination) and bool(experiment_id or experiment_name)
     url: str | None = None
-    if enabled and local_tracing():
-        url = "/api/demo/traces"
-    elif enabled:
+    if enabled:
         if destination.startswith(("http://", "https://")) and "databricks" not in destination:
             # A local OSS MLflow server: link into its own UI.
             base = destination.rstrip("/")
@@ -544,7 +541,6 @@ def _chat_session_items(result: dict[str, Any]) -> dict[str, Any]:
 def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     """Mount the Agent Bricks UI and its runtime control endpoints."""
     app.middleware("http")(authenticate_request)
-    app.include_router(trace_router)
     app.mount("/ui-assets", StaticFiles(directory=_UI_ROOT), name="agentbricks-demo-ui-assets")
 
     @app.middleware("http")
@@ -616,7 +612,7 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
                 # Under `agentbricks dev`, the store bound in agent.toml that connects on deploy.
                 "bound_store": os.getenv(_DEV_BOUND_MEMORY_STORE_ENV) or None,
             },
-            "tracing": _tracing() if request.state.viewer.admin else None,
+            "tracing": _tracing(),
         }
 
     @app.get("/api/demo/models", include_in_schema=False)

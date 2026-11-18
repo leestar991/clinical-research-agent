@@ -40,15 +40,11 @@ def checkpointer() -> BaseCheckpointSaver:
     return _sqlite_saver if _sqlite_saver is not None else agentkit_checkpointer()
 
 
-def actor_thread_id(session_id: str, actor: str) -> str:
-    return json.dumps([actor, session_id], separators=(",", ":"))
-
-
 def thread_config(session_id: str, actor: str) -> RunnableConfig:
     config = agentkit_thread_config(session_id, actor)
     if _sqlite_saver is not None or isinstance(checkpointer(), InMemorySaver):
         # SQLite and in-memory savers index by thread_id alone. Preserve the actor scope of the session.
-        config["configurable"]["thread_id"] = actor_thread_id(session_id, actor)
+        config["configurable"]["thread_id"] = json.dumps([actor, session_id], separators=(",", ":"))
     return config
 
 
