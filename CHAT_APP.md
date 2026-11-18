@@ -70,8 +70,9 @@ sessions.
 The Sessions card creates new session UUIDs in the browser. With a managed Session Store,
 `GET /api/demo/sessions` lists the most recent sessions for the signed-in actor and each Open action
 calls `POST /api/demo/sessions/{session_id}/open`. Opening a session verifies ownership and reloads
-its transcript and pending LangGraph state. In local SQLite mode the workbench shows the current browser session and reloads its
-history after a restart.
+its transcript and pending LangGraph state. In local SQLite mode the same card lists saved conversations for the selected actor, including
+older checkpoints and empty sessions created in the workbench. Opening one restores its transcript
+and pending approvals after a restart.
 
 Transcript responses include only user, assistant, tool, system, and human-decision message items;
 checkpoint fragments remain in Session Store but are never returned to the chat UI.

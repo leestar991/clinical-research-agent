@@ -6,6 +6,7 @@ import os
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import lru_cache
+from time import monotonic
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -72,6 +73,19 @@ def _profile_actor() -> str:
     return user.user_name.strip()
 
 
+async def _cached_profile_actor(request: Request) -> str:
+    # Only the loopback CLI identity is shared. Concurrent page loads reuse one
+    # lookup and an expired identity must be verified again before granting access.
+    state = request.app.state
+    if not hasattr(state, "profile_lock"):
+        state.profile_lock = asyncio.Lock()
+    async with state.profile_lock:
+        if monotonic() >= getattr(state, "profile_expires", 0):
+            state.profile_actor = await asyncio.to_thread(_profile_actor)
+            state.profile_expires = monotonic() + 30
+        return state.profile_actor
+
+
 async def _local_actor(request: Request) -> str:
     authorization = request.headers.get("authorization", "")
     scheme, _, credential = authorization.partition(" ")
@@ -81,7 +95,7 @@ async def _local_actor(request: Request) -> str:
         loopback = {"localhost", "127.0.0.1", "::1"}
         if not request.client or request.client.host not in loopback or request.url.hostname not in loopback:
             raise HTTPException(403, "The local Databricks profile is only available on loopback.")
-        return await asyncio.to_thread(_profile_actor)
+        return await _cached_profile_actor(request)
 
     # Explicit API credentials identify their own caller, including older Basic API clients.
     if scheme.lower() == "basic":

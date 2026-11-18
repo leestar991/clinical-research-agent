@@ -98,7 +98,7 @@ const state = {
   sessions: [],
   instanceId: null,
   lastAssistantText: "",
-  managedSessionId: "",
+  registeredSessionId: "",
   model: "",
   mode: "streaming",
   pendingInterrupt: null,
@@ -113,7 +113,7 @@ function ensureSessionId() {
 function setSessionId(value) {
   const nextSessionId = String(value || "");
   if (!nextSessionId) return;
-  if (state.sessionId !== nextSessionId) state.managedSessionId = "";
+  if (state.sessionId !== nextSessionId) state.registeredSessionId = "";
   state.sessionId = nextSessionId;
   localStorage.setItem(SESSION_STORAGE_KEY, state.sessionId);
   elements.sessionId.textContent = state.sessionId;
@@ -1401,7 +1401,7 @@ function renderSessionList() {
   }
   for (const session of items) {
     const current = session.session_id === state.sessionId;
-    const canOpen = !current && state.config?.session.managed;
+    const canOpen = !current && state.config?.session.durable;
     const row = document.createElement(canOpen ? "button" : "div");
     row.className = `session-item${current ? " current" : ""}${canOpen ? " session-open-button" : ""}`;
     if (canOpen) {
@@ -1454,19 +1454,18 @@ function renderSessionTranscript(items) {
   }
 }
 
-async function ensureManagedSession() {
-  if (!state.config?.session.managed) return null;
+async function ensureStoredSession() {
+  if (!state.config?.session.durable) return;
   const sessionId = ensureSessionId();
-  if (state.managedSessionId === sessionId) return sessionId;
-  stateMessage(elements.sessionItems, "Connecting managed session…", "loading");
+  if (state.registeredSessionId === sessionId) return sessionId;
   const response = await fetch(demoUrl("/api/demo/sessions"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...routingHeaders() },
     body: "{}",
   });
   const result = await jsonResponse(response);
-  state.managedSessionId = sessionId;
-  addEvent("session.managed", result);
+  if (state.sessionId === sessionId) state.registeredSessionId = sessionId;
+  addEvent("session.ready", result);
   return sessionId;
 }
 
@@ -1475,10 +1474,11 @@ async function refreshSession({ hydrateChat = false } = {}) {
     stateMessage(elements.sessionItems, "Session history is not available.");
     return;
   }
+  const sessionId = ensureSessionId();
   try {
-    const sessionId = state.config.session.managed ? await ensureManagedSession() : ensureSessionId();
     const response = await fetch(demoUrl("/api/demo/session/items"), { cache: "no-store", headers: routingHeaders() });
     const result = await jsonResponse(response);
+    if (sessionId !== state.sessionId) return;
     const items = sessionItems(result);
     renderSessionItems(items);
     if (hydrateChat) {
@@ -1487,27 +1487,39 @@ async function refreshSession({ hydrateChat = false } = {}) {
     }
     addEvent("session.items.list", result);
   } catch (error) {
+    if (sessionId !== state.sessionId) return;
     stateMessage(elements.sessionItems, error instanceof Error ? error.message : String(error), "error");
     addEvent("session.error", { message: String(error) });
   }
 }
 
 async function refreshSessions() {
+  const sessionId = ensureSessionId();
   stateMessage(elements.sessionList, "Loading sessions…", "loading");
   try {
     const response = await fetch(demoUrl("/api/demo/sessions"), { cache: "no-store", headers: routingHeaders() });
     const result = await jsonResponse(response);
+    if (sessionId !== state.sessionId) return;
     renderSessions(sessions(result));
     addEvent("sessions.list", result);
   } catch (error) {
+    if (sessionId !== state.sessionId) return;
     stateMessage(elements.sessionList, error instanceof Error ? error.message : String(error), "error");
     addEvent("session.error", { message: String(error) });
   }
 }
 
 async function refreshSessionView({ hydrateChat = false } = {}) {
-  await refreshSession({ hydrateChat });
-  await refreshSessions();
+  const sessionId = ensureSessionId();
+  try {
+    await ensureStoredSession();
+  } catch (error) {
+    if (sessionId === state.sessionId) stateMessage(elements.sessionItems, String(error), "error");
+    return;
+  }
+  if (sessionId === state.sessionId) {
+    await Promise.all([refreshSession({ hydrateChat }), refreshSessions()]);
+  }
 }
 
 async function invokeSync(payload) {
@@ -1689,7 +1701,6 @@ async function createNewSession() {
     setSessionId(newSessionId());
     resetSessionState();
     addEvent("session.new", { session_id: state.sessionId, previous_session_id: previousSessionId });
-    if (state.config?.session.managed) await ensureManagedSession();
     await refreshSessionView({ hydrateChat: true });
   } catch (error) {
     appendError(error);
@@ -1709,6 +1720,7 @@ async function openSession(sessionId) {
     });
     const result = await jsonResponse(response);
     setSessionId(sessionId);
+    if (!result.managed) state.registeredSessionId = sessionId;
     resetSessionState();
     addEvent("session.open", result);
     await refreshSessionView({ hydrateChat: true });

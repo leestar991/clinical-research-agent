@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import quote
 
 from agent import memory as local_memory
+from agent import sessions as local_sessions
 from agent.storage_config import storage_config
 from databricks.sdk.errors import NotFound
 from databricks_agentkit.runtime.auth import RequestAuthContext
@@ -706,6 +707,11 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
 
     @app.post("/api/demo/sessions", include_in_schema=False)
     async def ensure_session(request: Request) -> dict:
+        if local_sessions.use_local_sqlite():
+            session_id = _request_session_id(request)
+            private_id, actor = session_namespace(request, session_id, write=True)
+            await local_sessions.register_session(session_id, private_id, actor)
+            return {"session_id": session_id, "managed": False}
         _require_session()
         return await ensure_owned_session(_request_actor(request), _request_session_id(request))
 
@@ -713,6 +719,14 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
     async def list_sessions(request: Request) -> dict:
         session_id = _request_session_id(request)
         actor = request.state.viewer.reading(request.query_params.get("actor"))
+        if local_sessions.use_local_sqlite():
+            _, private_actor = session_namespace(request, session_id)
+            ids = await local_sessions.saved_sessions(private_actor, namespaced=app.auth_policy.requires_user)
+            return {
+                "sessions": [{"session_id": key, "actor_id": actor} for key in ids],
+                "current_session_id": session_id,
+                "managed": False,
+            }
         if not _session_store():
             return {
                 "sessions": [
@@ -735,13 +749,19 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
 
     @app.post("/api/demo/sessions/{session_id}/open", include_in_schema=False)
     async def open_session(request: Request, session_id: str) -> JSONResponse:
-        _require_session()
-        await checked_session(request, session_id)
+        local = local_sessions.use_local_sqlite()
+        if local:
+            private_id, actor = session_namespace(request, session_key(session_id))
+            if not await local_sessions.has_session(private_id, actor):
+                raise HTTPException(404, "Session not found.")
+        else:
+            _require_session()
+            await checked_session(request, session_id)
         return JSONResponse(
             {
                 "session_id": session_id,
                 "previous_session_id": _request_session_id(request),
-                "managed": True,
+                "managed": not local,
             }
         )
 
@@ -760,11 +780,11 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
             payload.items,
         )
 
-    def session_namespace(request: Request, session_id: str) -> tuple[str, str]:
-        actor = request.state.viewer.reading(request.query_params.get("actor"))
+    def session_namespace(request: Request, session_id: str, *, write: bool = False) -> tuple[str, str]:
+        actor = _request_actor(request) if write else request.state.viewer.reading(request.query_params.get("actor"))
         private_id, private_actor = session_id, actor
         if app.auth_policy.requires_user:
-            auth = read_namespace(request)
+            auth = RequestAuthContext.from_headers(request.headers) if write else read_namespace(request)
             try:
                 private_id = auth.namespace("session", session_id)
                 private_actor = auth.namespace("actor", actor)

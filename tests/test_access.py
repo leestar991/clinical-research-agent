@@ -121,6 +121,8 @@ def test_local_profile_and_explicit_api_credentials(tmp_path, monkeypatch):
         return httpx.Response(200 if ok else 401, json={"userName": "bob"}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(httpx.AsyncClient, "get", whoami)
+    now = 100
+    monkeypatch.setattr(access, "monotonic", lambda: now)
     user = SimpleNamespace(user_name="operator", active=True)
     monkeypatch.setattr(access, "workspace_client", lambda: SimpleNamespace(
         current_user=SimpleNamespace(me=lambda: user)
@@ -142,6 +144,8 @@ def test_local_profile_and_explicit_api_credentials(tmp_path, monkeypatch):
             config = client.get(url, **auth).json()
             assert (config["viewer"], config["role"]) == ("bob", "user")
         user.active = False
+        assert client.get(url).status_code == 200  # Still within the local profile cache window.
+        now += 31
         assert client.get(url).status_code == 403
 
         def expired_profile():
