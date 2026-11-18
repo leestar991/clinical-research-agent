@@ -21,6 +21,14 @@ project and follow the generated prompt in your coding agent. The migration skil
 [AGENTKIT_CONTRACT.md](AGENTKIT_CONTRACT.md), which owns integration requirements. This README owns
 configuration and client examples; [AGENTS.md](AGENTS.md) provides the development map.
 
+## Model API protocol
+
+Set `use_responses_api = true` in the model's table in [agent.toml](agent.toml) to use the
+Responses API. For example, `[models."system.ai.gpt-6-astra"]` enables tool calls with reasoning
+for Astra when its flag is true. Quote the full model service name so TOML preserves the dots.
+A missing flag or table defaults to Chat Completions. The agent reads the setting for the
+selected endpoint each time it builds a graph.
+
 ## Storage profiles
 
 [中文部署指南：从本地 SQLite 切换到云端托管存储](DEPLOYMENT.zh-CN.md)

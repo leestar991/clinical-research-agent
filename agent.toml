@@ -13,3 +13,7 @@ name = "clinical-research-agent-eikyyo-sessions"
 
 [tracing]
 experiment_name = "/Shared/agentbricks_traces/clinical-research-agent-eikyyo"
+
+# Per-model request protocol. Unlisted models use Chat Completions.
+[models."system.ai.gpt-6-astra"]
+use_responses_api = true

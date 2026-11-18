@@ -93,6 +93,22 @@ async def test_graph_uses_tool_compatible_model_api(monkeypatch, endpoint, respo
     assert "get_current_time" in [t.get("function", t)["name"] for t in payload["tools"]]
 
 
+async def test_model_api_follows_manifest_edits(monkeypatch, tmp_path):
+    from agent import agent as agent_module
+
+    monkeypatch.setenv("AGENTBRICKS_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(agent_module, "create_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(agent_module, "_app_workspace_client", lambda: None)
+    endpoint = "catalog.schema.custom-model"
+    manifest = tmp_path / "agent.toml"
+    base = 'schema_version = 1\n[agent]\nframework = "langgraph"\n'
+    for setting, expected in [("true", True), ("false", False), (None, False)]:
+        section = f'[models."{endpoint}"]\nuse_responses_api = {setting}\n' if setting else ""
+        manifest.write_text(base + section)
+        graph = await agent_module.create_agent_graph("test-actor", endpoint)
+        assert graph["model"].use_responses_api is expected
+
+
 def test_thread_config_from_session_id():
     # actor_id rides alongside thread_id — the durable saver maps it onto the Session's actor.
     assert thread_config("abc-123") == {

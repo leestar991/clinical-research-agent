@@ -1,4 +1,5 @@
 import os
+import tomllib
 from collections.abc import AsyncGenerator, Callable
 from functools import lru_cache
 from typing import Any
@@ -30,7 +31,7 @@ from databricks_agentkit.langgraph.session_store import (
     invocation_metadata,
 )
 from databricks_agentkit.runtime.auth import AuthError
-from databricks_agentkit.runtime.tool_manifest import resolve_model_service
+from databricks_agentkit.runtime.tool_manifest import project_root, resolve_model_service
 
 # A Unity Catalog AI Gateway model service, served from the `system.ai` schema and queried through
 # the gateway (see `use_ai_gateway=True` below). Swap for any `system.ai.*` model service your
@@ -102,6 +103,20 @@ def _check_databricks_auth() -> None:
         ) from e
 
 
+def _use_responses_api(endpoint: str) -> bool:
+    with (project_root() / "agent.toml").open("rb") as manifest:
+        models = tomllib.load(manifest).get("models", {})
+    if not isinstance(models, dict):
+        raise ValueError("agent.toml: models must be a table")
+    settings = models.get(endpoint, {})
+    if not isinstance(settings, dict):
+        raise ValueError(f"agent.toml: expected a table for model {endpoint!r}")
+    enabled = settings.get("use_responses_api", False)
+    if not isinstance(enabled, bool):
+        raise ValueError(f"agent.toml: use_responses_api for {endpoint!r} must be true or false")
+    return enabled
+
+
 async def create_agent_graph(
     actor: str,
     model: str | None = None,
@@ -135,8 +150,7 @@ async def create_agent_graph(
             endpoint=endpoint,
             workspace_client=_app_workspace_client(),
             use_ai_gateway=True,
-            # Astra requires the Responses API to combine reasoning and function tools.
-            use_responses_api=endpoint == "system.ai.gpt-6-astra",
+            use_responses_api=_use_responses_api(endpoint),
         ),
         tools=tools,
         middleware=middleware,
