@@ -117,6 +117,7 @@ function setSessionId(value) {
   state.sessionId = nextSessionId;
   localStorage.setItem(SESSION_STORAGE_KEY, state.sessionId);
   elements.sessionId.textContent = state.sessionId;
+  if (state.config?.tracing?.session_path) void renderTracing(state.config);
 }
 
 setSessionId(state.sessionId);
@@ -1760,6 +1761,39 @@ async function loadModels() {
   renderModels(await jsonResponse(response));
 }
 
+async function renderTracing(config) {
+  const card = elements.tracingStatus.closest(".capability-item");
+  card.hidden = config.role !== "admin";
+  const tracing = config.tracing;
+  if (card.hidden) {
+    card.querySelector(".capability-detail").replaceChildren();
+    return;
+  }
+  elements.tracingMode.textContent = tracing?.enabled ? "Connected" : "Not configured";
+  if (!tracing?.enabled) {
+    setCapability(elements.tracingStatus, "degraded", "Tracing is off.", "agentbricks tracing bind --experiment-name <path>");
+    return;
+  }
+  const detail = "Every run is traced to an MLflow experiment.";
+  let link = tracing.url && { href: tracing.url, label: "View traces in MLflow" };
+  if (tracing.session_path) {
+    const session = state.sessionId;
+    setCapability(elements.tracingStatus, true, detail);
+    try {
+      const response = await fetch(demoUrl(tracing.session_path), { cache: "no-store" });
+      const { url } = await jsonResponse(response);
+      link = { href: url, label: "View session traces in MLflow" };
+    } catch (error) {
+      if (state.config === config && state.sessionId === session) {
+        setCapability(elements.tracingStatus, "degraded", String(error));
+      }
+      return;
+    }
+    if (state.config !== config || state.sessionId !== session) return;
+  }
+  setCapability(elements.tracingStatus, true, detail, null, link);
+}
+
 async function loadConfig() {
   try {
     const response = await fetch(demoUrl("/api/ui/config"), { cache: "no-store" });
@@ -1808,18 +1842,7 @@ async function loadConfig() {
         memoryState
       ],
     );
-    elements.tracingMode.textContent = config.tracing?.enabled ? "Connected" : "Not configured";
-    setCapability(
-      elements.tracingStatus,
-      config.tracing?.enabled ? true : "degraded",
-      config.tracing?.enabled
-        ? "Every run is traced to an MLflow experiment."
-        : "Tracing is off. Set an MLflow destination and experiment to record traces.",
-      config.tracing?.enabled ? null : "agentbricks tracing bind --experiment-name <path>",
-      config.tracing?.enabled && config.tracing?.url
-        ? { href: config.tracing.url, label: "View traces in MLflow" }
-        : null,
-    );
+    void renderTracing(config);
     elements.newSession.disabled = state.busy;
     elements.refreshSession.disabled = state.busy || !config.session.history;
     elements.resumeSession.disabled = state.busy || !config.session.durable;

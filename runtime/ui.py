@@ -10,6 +10,7 @@ import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from agent import memory as local_memory
 from agent.storage_config import storage_config
@@ -122,11 +123,12 @@ def _tracing() -> dict:
     experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "").strip()
     enabled = bool(destination) and bool(experiment_id or experiment_name)
     url: str | None = None
+    session_path = None
     if enabled:
         if destination.startswith(("http://", "https://")) and "databricks" not in destination:
             # A local OSS MLflow server: link into its own UI.
-            base = destination.rstrip("/")
-            url = f"{base}/#/experiments/{experiment_id}" if experiment_id else base
+            url = destination.rstrip("/")
+            session_path = "/api/demo/session/traces"
         else:
             host = _workspace_host()
             if host:
@@ -135,7 +137,7 @@ def _tracing() -> dict:
                     if experiment_id
                     else f"{host}/ml/experiments"
                 )
-    return {"enabled": enabled, "experiment_id": experiment_id or None, "url": url}
+    return {"enabled": enabled, "experiment_id": experiment_id or None, "url": url, "session_path": session_path}
 
 
 def _default_model() -> str:
@@ -612,7 +614,7 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
                 # Under `agentbricks dev`, the store bound in agent.toml that connects on deploy.
                 "bound_store": os.getenv(_DEV_BOUND_MEMORY_STORE_ENV) or None,
             },
-            "tracing": _tracing(),
+            "tracing": _tracing() if request.state.viewer.admin else None,
         }
 
     @app.get("/api/demo/models", include_in_schema=False)
@@ -758,9 +760,7 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
             payload.items,
         )
 
-    @app.get("/api/demo/session/items", include_in_schema=False)
-    async def list_session_items(request: Request) -> dict:
-        session_id = _request_session_id(request)
+    def session_namespace(request: Request, session_id: str) -> tuple[str, str]:
         actor = request.state.viewer.reading(request.query_params.get("actor"))
         private_id, private_actor = session_id, actor
         if app.auth_policy.requires_user:
@@ -770,6 +770,38 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
                 private_actor = auth.namespace("actor", actor)
             finally:
                 auth.close()
+        return private_id, private_actor
+
+    @app.get("/api/demo/session/traces", include_in_schema=False)
+    def session_traces(request: Request) -> dict:
+        request.state.viewer.require_admin()
+        tracing = _tracing()
+        if not tracing["session_path"]:
+            raise HTTPException(404, "Local MLflow tracing is unavailable.")
+
+        from agent.sessions import thread_config
+        from mlflow import MlflowClient
+        from mlflow.exceptions import MlflowException
+
+        session, actor = session_namespace(request, _request_session_id(request))
+        thread = thread_config(session, actor)["configurable"]["thread_id"]
+        experiment_id = tracing["experiment_id"]
+        if not experiment_id:
+            client = MlflowClient(tracking_uri=tracing["url"])
+            try:
+                experiment = client.get_experiment_by_name(os.environ["MLFLOW_EXPERIMENT_NAME"].strip())
+            except MlflowException as exc:
+                raise HTTPException(503, "Cannot reach the MLflow experiment.") from exc
+            if experiment is None:
+                raise HTTPException(404, "MLflow experiment has not been created yet.")
+            experiment_id = experiment.experiment_id
+        experiment_url = f"{tracing['url']}/#/experiments/{quote(experiment_id, safe='')}"
+        return {"url": f"{experiment_url}/chat-sessions/{quote(thread, safe='')}"}
+
+    @app.get("/api/demo/session/items", include_in_schema=False)
+    async def list_session_items(request: Request) -> dict:
+        session_id = _request_session_id(request)
+        private_id, private_actor = session_namespace(request, session_id)
         if _session_store():
             # The SDK keys checkpoints by physical session ID. Check its authoritative
             # owner first; a history read of a new session must not create it.

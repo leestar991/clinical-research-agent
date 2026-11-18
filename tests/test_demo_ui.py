@@ -1,3 +1,5 @@
+from urllib.parse import unquote
+
 import pytest
 from fastapi.testclient import TestClient
 from runtime import access, ui
@@ -548,17 +550,6 @@ def test_managed_memory_and_session_routes(monkeypatch):
     search_bob = client.post("/api/demo/memory/search", json={"query": "x", "actor": "bob"})
     assert search_bob.status_code == 403
 
-    # Tracing surfaces in config when a destination + experiment are set, with an experiment link.
-    monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
-    monkeypatch.setenv("MLFLOW_EXPERIMENT_ID", "123456")
-    monkeypatch.setattr(ui, "_workspace_host", lambda: "https://example.databricks.com")
-    tracing = client.get("/api/ui/config").json()["tracing"]
-    assert tracing["enabled"] is True
-    assert tracing["url"] == "https://example.databricks.com/ml/experiments/123456"
-    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
-    monkeypatch.delenv("MLFLOW_EXPERIMENT_ID", raising=False)
-    assert client.get("/api/ui/config").json()["tracing"]["enabled"] is False
-
     assert (
         client.post("/api/demo/sessions", json={"session_id": "ignored"}).json()["session_id"]
         == "s1"
@@ -652,3 +643,36 @@ def test_demo_tools_route_lists_bindings_local_tools_and_add_commands(monkeypatc
         "agentbricks tools list --kind mcp",
     ]
     assert payload["errors"] == []
+
+
+def test_trace_entry_is_only_available_to_admins(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setenv("AGENT_ADMIN_USERS", "admin")
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:50714")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_ID", "123456")
+    assert client.get("/api/ui/config").json()["tracing"] is None
+    assert client.get("/api/demo/session/traces").status_code == 403
+
+    client.headers["X-Forwarded-Email"] = "admin"
+    tracing = client.get("/api/ui/config").json()["tracing"]
+    for session in ("first", "second session"):
+        response = client.get(tracing["session_path"], params={"session_id": session})
+        assert response.status_code == 200
+        assert unquote(response.json()["url"]) == (
+            f'http://127.0.0.1:50714/#/experiments/123456/chat-sessions/["admin","{session}"]'
+        )
+
+
+def test_admin_workspace_tracing_config(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setenv("AGENT_ADMIN_USERS", "alice")
+    # Tracing surfaces in config when a destination + experiment are set, with an experiment link.
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_ID", "123456")
+    monkeypatch.setattr(ui, "_workspace_host", lambda: "https://example.databricks.com")
+    tracing = client.get("/api/ui/config").json()["tracing"]
+    assert tracing["enabled"] is True
+    assert tracing["url"] == "https://example.databricks.com/ml/experiments/123456"
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_ID", raising=False)
+    assert client.get("/api/ui/config").json()["tracing"]["enabled"] is False

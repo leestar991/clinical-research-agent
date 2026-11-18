@@ -17,7 +17,8 @@ The capability indicators are automatic. Streaming and background reflect the ru
 Session reflects checkpoint history; Memory shows the active local or managed store; Traces reflects the MLflow
 tracing config (destination + experiment). Selecting Memory opens a pane for browsing the store's
 entries (admins can filter by actor, regular users see their own); the other indicators expand
-in place, and Traces links out to the MLflow experiment. The transport selector is the only manual
+in place. Only application admins see Traces. Its local link opens the current conversation in
+MLflow, and its workspace link opens the bound experiment. The transport selector is the only manual
 capability choice; hover or focus a mode to see what it does.
 
 In `agentbricks dev`, Memory and Session use separate SQLite files in `.agentbricks/`.
