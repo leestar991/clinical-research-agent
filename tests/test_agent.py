@@ -89,7 +89,11 @@ def test_default_model_reads_project_manifest(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize(
     ("endpoint", "responses_api"),
-    [("system.ai.gpt-6-astra", True), ("system.ai.claude-sonnet-5-5", False)],
+    [
+        ("system.ai.gpt-6-astra", True),
+        ("system.ai.gpt-6-1-sol", True),
+        ("system.ai.claude-sonnet-5-5", False),
+    ],
 )
 async def test_graph_uses_tool_compatible_model_api(monkeypatch, endpoint, responses_api):
     from agent import agent as agent_module
