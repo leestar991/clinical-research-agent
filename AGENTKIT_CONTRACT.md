@@ -45,6 +45,13 @@ Feed selected tools into both model definitions and graph execution while preser
 policy. New bindings must become effective on the next graph construction or restart without
 another source edit.
 
+The local dev runtime additionally loads directory skills from the project-root `skills/` catalog
+configured in `agent/skills.toml`. Bind discovery and execution tools to the same graph.
+The server supplies actor and internal session identity to the invocation context. Pin the package
+before executing its own CLI inside the invocation's disposable local Docker container. Authenticated
+downloads and input restoration use the session file store outside the container. These tools
+are enabled by the Agent Bricks local runtime flag.
+
 ### Sessions and memory
 
 Use `checkpointer()` for managed state and merge `thread_config(session_id, actor)` into every

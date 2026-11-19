@@ -1,10 +1,13 @@
 """Run the LangGraph agent with the optional Agent Bricks chat app."""
 
 import os
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from pathlib import Path
 
 import uvicorn
+from agent.skill_directory import LocalConfig, local_skills_enabled
+from agent.skill_files import cleanup_loop
 from agent.agent import configure
 from agent.sessions import local_sqlite_sessions, use_local_sqlite
 from dotenv import load_dotenv
@@ -24,13 +27,23 @@ configure()
 runtime_store = local_runtime_store()
 app = DurableAgentServer(runtime_store=runtime_store)
 install_runtime_access(app)
-if use_local_sqlite():
+if use_local_sqlite() or local_skills_enabled():
     runtime_lifespan = app.router.lifespan_context
 
     @asynccontextmanager
     async def local_lifespan(server):
-        async with local_sqlite_sessions(), runtime_lifespan(server) as state:
-            yield state
+        async with AsyncExitStack() as stack:
+            if use_local_sqlite():
+                await stack.enter_async_context(local_sqlite_sessions())
+            state = await stack.enter_async_context(runtime_lifespan(server))
+            cleanup = asyncio.create_task(cleanup_loop(LocalConfig.load())) if local_skills_enabled() else None
+            try:
+                yield state
+            finally:
+                if cleanup:
+                    cleanup.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await cleanup
 
     app.router.lifespan_context = local_lifespan
 

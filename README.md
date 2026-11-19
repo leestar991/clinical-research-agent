@@ -86,6 +86,27 @@ Reuse `SESSION_ID` for multi-turn conversation state. Generate a new `INVOCATION
 Retrying the same request with the same invocation ID returns the persisted result; changing the
 request while reusing the ID returns `409`.
 
+### 本地目录技能
+
+在本机启动 Docker，准备配置中的 Python 镜像，然后从项目根目录启动工作台。
+
+```bash
+docker pull python:3.12.10-slim
+agentbricks --profile ws-poc dev
+```
+
+把可信技能放在 `skills/<技能名>/`，目录内保留原始 `SKILL.md`、引用文件和脚本。正文的 YAML 头包含与目录名一致的 `name` 和用于自然语言匹配的 `description`。`agent/skills.toml` 配置技能根目录、镜像、命令超时和会话文件保留天数。工作台可直接输入“用文献检索技能为 KRAS G12C 肺癌生成 quick 检索计划，使用 dry-run 并保存 JSON”。
+
+Agent 先读取正文，按需阅读引用文件，然后用参数数组运行包内 Python 或 Bash 入口。执行目录为 `/work`，通过 `save_files` 发布输出。返回的下载链接仅对当前用户开放。会话下一轮可列出并恢复文件，默认保留 30 天。每次请求首次执行命令时才创建容器，同次请求复用，结束时删除。无需 Docker 即可浏览技能说明。
+
+容器使用本机 Docker 的默认网络，可访问匿名文献 API；实际可达性取决于开发机网络。仅安装可信包。沙箱以非 root 用户运行，技能和本次指定的输入只读挂载。第三方 API 密钥代发另行接入。云端部署使用已有托管工具绑定。
+
+运行本地 Docker 集成测试：
+
+```bash
+TEST_SKILL_DOCKER=1 uv run pytest -q tests/test_local_skills.py
+```
+
 ## Long-term memory
 
 The Session Store keeps one conversation's state, keyed by the top-level `session_id`. The Memory Store

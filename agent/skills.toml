@@ -1,0 +1,9 @@
+# Paths are relative to the project containing agent.toml.
+[local]
+directory = "skills"
+image = "python:3.12.10-slim"
+command_timeout_seconds = 240
+
+[session_files]
+directory = ".agentbricks/skill-files"
+retention_days = 30

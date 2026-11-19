@@ -12,6 +12,8 @@ from langchain.agents.middleware.human_in_the_loop import HITLResponse
 from langgraph.types import Command
 from pydantic import TypeAdapter, ValidationError
 
+from agent.local_skills import local_tools, skill_invocation
+from agent.skill_directory import LocalConfig, discover
 from agent.mcps import build_mcp_servers
 from agent.memory import memory_tools
 from agent.sessions import checkpointer, thread_config
@@ -146,8 +148,10 @@ async def create_agent_graph(
     request to request.
     """
     mcp = await mcp_tools(build_mcp_servers(), workspace_client_for=workspace_client_for)
+    skills = local_tools()
     tools = [
         *all_tools(),
+        *skills,
         *memory_tools(actor),
         *genie_tools(workspace_client_for=workspace_client_for),
         *mcp,
@@ -156,7 +160,15 @@ async def create_agent_graph(
         [HumanInTheLoopMiddleware(interrupt_on=REQUIRE_APPROVAL)] if REQUIRE_APPROVAL else []
     )
     endpoint = model or MODEL
+    prompt = None
+    if skills:
+        catalog = discover(LocalConfig.load().directory)
+        prompt = ("Use a matching installed skill for explicit requests and requests matching its description. "
+                  "First load_skill and read its SKILL.md, consult its references, then run its bundled CLI "
+                  "with run_skill. Pass save_files for requested deliverables and link their returned URLs. "
+                  "Installed skills:\n" + "\n".join(f"{s['name']}: {s['description']}" for s in catalog))
     return create_agent(
+        system_prompt=prompt,
         # use_ai_gateway routes to the Unity Catalog AI Gateway (`<host>/ai-gateway/mlflow/v1`), so
         # `endpoint` is a `system.ai.*` model name rather than a serving-endpoint name.
         model=_RoutedChatDatabricks(
@@ -247,15 +259,16 @@ async def run_agent(
     await _validate_approval_resume(graph, config, agent_input)
 
     last_update: Any = None
-    with start_trace(name="invoke", inputs=agent_input, session_id=session_id) as span:
-        async for event in graph.astream(
-            input=agent_input,
-            config=config,
-            stream_mode=["updates", "messages"],
-            durability="sync",
-        ):
-            if event[0] == "updates":
-                last_update = event[1]
-            yield event
-        if span is not None and last_update is not None:
-            span.set_outputs(last_update)
+    async with skill_invocation(actor, session_id):
+        with start_trace(name="invoke", inputs=agent_input, session_id=session_id) as span:
+            async for event in graph.astream(
+                input=agent_input,
+                config=config,
+                stream_mode=["updates", "messages"],
+                durability="sync",
+            ):
+                if event[0] == "updates":
+                    last_update = event[1]
+                yield event
+            if span is not None and last_update is not None:
+                span.set_outputs(last_update)

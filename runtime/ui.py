@@ -251,7 +251,9 @@ def _local_tools() -> list[dict[str, str]]:
     from agent.tools import all_tools
 
     local = []
-    for tool in all_tools():
+    from agent.local_skills import local_tools
+
+    for tool in [*all_tools(), *local_tools()]:
         lines = (getattr(tool, "description", "") or "").strip().splitlines()
         local.append({"name": tool.name, "description": lines[0].strip() if lines else ""})
     return local
@@ -791,6 +793,34 @@ def install_ui(app: FastAPI, *, local_runtime: bool = False) -> None:
             finally:
                 auth.close()
         return private_id, private_actor
+
+    from agent.skill_directory import local_skills_enabled
+
+    if local_skills_enabled():
+        from agent.skill_directory import LocalConfig
+        from agent.skill_files import lookup, owner_directory
+        from langchain_core.tools import ToolException
+
+        @app.get("/api/skill-files/{scope}/{file_id}", include_in_schema=False)
+        def skill_file(request: Request, scope: str, file_id: str) -> FileResponse:
+            if not re.fullmatch(r"[0-9a-f]{64}", scope):
+                raise HTTPException(404)
+            actor = _request_actor(request)
+            if app.auth_policy.requires_user:
+                auth = RequestAuthContext.from_headers(request.headers)
+                try:
+                    actor = auth.namespace("actor", actor)
+                finally:
+                    auth.close()
+            config = LocalConfig.load()
+            directory = owner_directory(config, actor) / scope
+            try:
+                name, path = lookup(directory, config.retention_days, file_id)
+            except ToolException:
+                raise HTTPException(404) from None
+            return FileResponse(path, filename=name, media_type="application/octet-stream",
+                                headers={"Cache-Control": "private, no-store",
+                                         "X-Content-Type-Options": "nosniff"})
 
     @app.get("/api/demo/session/traces", include_in_schema=False)
     def session_traces(request: Request) -> dict:
